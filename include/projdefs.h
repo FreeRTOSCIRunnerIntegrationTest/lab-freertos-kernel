@@ -46,8 +46,8 @@ typedef void (* TaskFunction_t)( void * );
 #define pdTRUE                                   ( ( BaseType_t ) 1 )
 #define pdFALSE_SIGNED                           ( ( BaseType_t ) 0 )
 #define pdTRUE_SIGNED                            ( ( BaseType_t ) 1 )
-#define pdFALSE_UNSIGNED                         ( ( UBaseType_t ) 0 )
-#define pdTRUE_UNSIGNED                          ( ( UBaseType_t ) 1 )
+#define pdFALSE_UNSIGNED                         ( ( UBaseType_t ) 0U )
+#define pdTRUE_UNSIGNED                          ( ( UBaseType_t ) 1U )
 
 #define pdPASS                                   ( pdTRUE )
 #define pdFAIL                                   ( pdFALSE )
@@ -55,9 +55,13 @@ typedef void (* TaskFunction_t)( void * );
 #define errQUEUE_FULL                            ( ( BaseType_t ) 0 )
 
 /* FreeRTOS error definitions. */
-#define errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY    ( -1 )
-#define errQUEUE_BLOCKED                         ( -4 )
-#define errQUEUE_YIELD                           ( -5 )
+#define errNO_ERROR                              ( ( BaseType_t ) 0 )
+#define errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY    ( ( BaseType_t ) -1 )
+#define errQUEUE_BLOCKED                         ( ( BaseType_t ) -4 )
+#define errQUEUE_YIELD                           ( ( BaseType_t ) -5 )
+#define errINPUT_OUT_OF_RANGE                    ( ( BaseType_t ) -6 )
+#define errSCHEDULER_NOT_RUNNING                 ( ( BaseType_t ) -7 )
+#define errTASK_NOT_DELAYED                      ( ( BaseType_t ) -8 )
 
 /* Macros used for basic data corruption checks. */
 #ifndef configUSE_LIST_DATA_INTEGRITY_CHECK_BYTES
