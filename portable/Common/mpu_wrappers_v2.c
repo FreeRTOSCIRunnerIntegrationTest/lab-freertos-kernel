@@ -3683,6 +3683,8 @@
 /*           MPU wrappers for event group APIs.              */
 /*-----------------------------------------------------------*/
 
+#if 0
+
     EventBits_t MPU_xEventGroupWaitBitsImpl( EventGroupHandle_t xEventGroup,
                                              const EventBits_t uxBitsToWaitFor,
                                              const BaseType_t xClearOnExit,
@@ -4666,6 +4668,7 @@
         return xReturn;
     }
 
+#endif
 /*-----------------------------------------------------------*/
 
 /* Functions that the application writer wants to execute in privileged mode
