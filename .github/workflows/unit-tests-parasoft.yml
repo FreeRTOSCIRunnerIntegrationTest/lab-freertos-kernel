@@ -33,6 +33,8 @@ jobs:
     - name: Checkout Unit Tests Repository
       uses: actions/checkout@v3
       with:
+        # Use the personal access token to authenticate
+        token: ${{ secrets.PAT }}
         ref: cmakej
         repository: FreeRTOSCIRunnerIntegrationTest/kernel-safety-tests
 
