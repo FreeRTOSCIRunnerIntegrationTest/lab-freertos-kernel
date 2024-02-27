@@ -28,7 +28,7 @@ jobs:
     - name: Checkout Unit Tests Repository
       uses: actions/checkout@v3
       with:
-        ref: cmake-j
+        ref: cmakej
         repository: FreeRTOSCIRunnerIntegrationTest/kernel-safety-tests
 
     - name: Modify kernel module to the PR commit
@@ -36,7 +36,7 @@ jobs:
         echo "pr commit: ${{github.event.workflow_run.head_sha}}"
         sed -i s/^GIT_TAG/GIT_TAG ${{github.event.workflow_run.head_sha}} CMakeLists.txt
         cat CMakeLists.txt
-        
+
     # Configures your CMake project.
     - name: Configure project
       run: cmake -S . -B build -DCPPTEST_PROJECT=ON
