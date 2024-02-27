@@ -41,7 +41,8 @@ jobs:
     - name: Modify kernel module to the PR commit
       run: |
         echo "pr  commit: ${{github.event.workflow_run.head_sha}}"
-        sed -i s/^GIT_TAG/GIT_TAG ${{github.event.workflow_run.head_sha}} CMakeLists.txt
+        echo " pr headsha: ${{github.event.pull_request.head.sha}}"
+        sed -i s/^GIT_TAG/GIT_TAG ${{github.event.workflow_run.head_sha}}/g CMakeLists.txt
         cat CMakeLists.txt
 
     # Configures your CMake project.
