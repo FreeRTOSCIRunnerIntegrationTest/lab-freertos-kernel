@@ -1,0 +1,57 @@
+name: Parasoft Unit Tests
+on: [push, pull_request]
+
+jobs:
+  run-cpptest-cmake:
+    name: Analyze project with Parasoft cpptest
+
+    # Specifies required permissions for upload-sarif action
+    permissions:
+      # required for all workflows
+      security-events: write
+      # only required for workflows in private repositories
+      actions: read
+      contents: read
+
+    # Specifies the type of runner that the job will run on.
+    runs-on:
+     - self-hosted
+     - cirunner-type-fargate
+     - cirunner-size-micro
+     - cirunner-image-parasoft-latest
+
+    steps:
+
+    # Run unit tests against PR kernel code.
+
+    # Get unit tests from kernel test repo
+    - name: Checkout Unit Tests Repository
+      uses: actions/checkout@v3
+      with:
+        ref: cmake-j
+        repository: FreeRTOSCIRunnerIntegrationTest/kernel-safety-tests
+
+    - name: Modify kernel module to the PR commit
+      run: |
+        echo "pr commit: ${{github.event.workflow_run.head_sha}}"
+        sed -i s/^GIT_TAG/GIT_TAG ${{github.event.workflow_run.head_sha}} CMakeLists.txt
+        cat CMakeLists.txt
+        
+    # Configures your CMake project.
+    - name: Configure project
+      run: cmake -S . -B build -DCPPTEST_PROJECT=ON
+
+    # Builds your CMake project.
+    - name: Build project
+      run: cmake --build build
+
+    - name: Run Parasoft Static Analysis (sa)
+      run: make -C build sa
+
+    # Uploads an archive that includes all report files (.xml, .html, .sarif).
+    - name: Archive reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: CpptestReports-sa
+        path: reports/sa/
