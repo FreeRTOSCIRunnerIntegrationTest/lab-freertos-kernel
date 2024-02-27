@@ -42,7 +42,7 @@ jobs:
       run: |
         echo "pr  commit: ${{github.event.workflow_run.head_sha}}"
         echo " pr headsha: ${{github.event.pull_request.head.sha}}"
-        sed -i s/^GIT_TAG/GIT_TAG ${{github.event.workflow_run.head_sha}}/g CMakeLists.txt
+        sed -i '/^[[:space:]]*GIT_TAG/c\GIT_TAG ${{github.event.pull_request.head.sha}}' CMakeLists.txt
         cat CMakeLists.txt
 
     # Configures your CMake project.
