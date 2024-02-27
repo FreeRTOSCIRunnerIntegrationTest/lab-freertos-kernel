@@ -60,3 +60,15 @@ jobs:
       with:
         name: CpptestReports-sa
         path: reports/sa/
+
+    - name: Run Parasoft Unit Tests (ut)
+      run: make -C build ut
+
+    # Uploads an archive that includes all report files (.xml, .html, .sarif).
+    - name: Archive reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: CpptestReports-ut
+        path: reports/ut/
+
