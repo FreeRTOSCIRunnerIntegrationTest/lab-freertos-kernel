@@ -33,7 +33,7 @@ jobs:
 
     - name: Modify kernel module to the PR commit
       run: |
-        echo "pr commit: ${{github.event.workflow_run.head_sha}}"
+        echo "pr  commit: ${{github.event.workflow_run.head_sha}}"
         sed -i s/^GIT_TAG/GIT_TAG ${{github.event.workflow_run.head_sha}} CMakeLists.txt
         cat CMakeLists.txt
 
