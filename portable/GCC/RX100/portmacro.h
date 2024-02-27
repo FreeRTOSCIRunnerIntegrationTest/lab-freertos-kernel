@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -146,6 +146,8 @@ void vPortSetIPL( uint32_t ulNewIPL ) __attribute__( ( naked ) );
 /* Task function macros as described on the FreeRTOS.org WEB site. */
 #define portTASK_FUNCTION_PROTO( vFunction, pvParameters )    void vFunction( void * pvParameters )
 #define portTASK_FUNCTION( vFunction, pvParameters )          void vFunction( void * pvParameters )
+
+#define portMEMORY_BARRIER()                                  __asm volatile ( "" ::: "memory" )
 
 /* *INDENT-OFF* */
 #ifdef __cplusplus

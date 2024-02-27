@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -47,29 +47,31 @@
     #error INCLUDE_xTaskGetCurrentTaskHandle must be set to 1 to build stream_buffer.c
 #endif
 
-/* Lint e961, e9021 and e750 are suppressed as a MISRA exception justified
- * because the MPU ports require MPU_WRAPPERS_INCLUDED_FROM_API_FILE to be defined
+/* The MPU ports require MPU_WRAPPERS_INCLUDED_FROM_API_FILE to be defined
  * for the header files above, but not in this file, in order to generate the
  * correct privileged Vs unprivileged linkage and placement. */
-#undef MPU_WRAPPERS_INCLUDED_FROM_API_FILE /*lint !e961 !e750 !e9021. */
+#undef MPU_WRAPPERS_INCLUDED_FROM_API_FILE
 
 /* If the user has not provided application specific Rx notification macros,
  * or #defined the notification macros away, then provide default implementations
  * that uses task notifications. */
-/*lint -save -e9026 Function like macros allowed and needed here so they can be overridden. */
 #ifndef sbRECEIVE_COMPLETED
-    #define sbRECEIVE_COMPLETED( pxStreamBuffer )                         \
-    vTaskSuspendAll();                                                    \
-    {                                                                     \
-        if( ( pxStreamBuffer )->xTaskWaitingToSend != NULL )              \
-        {                                                                 \
-            ( void ) xTaskNotify( ( pxStreamBuffer )->xTaskWaitingToSend, \
-                                  ( uint32_t ) 0,                         \
-                                  eNoAction );                            \
-            ( pxStreamBuffer )->xTaskWaitingToSend = NULL;                \
-        }                                                                 \
-    }                                                                     \
-    ( void ) xTaskResumeAll()
+    #define sbRECEIVE_COMPLETED( pxStreamBuffer )                                     \
+    do                                                                                \
+    {                                                                                 \
+        vTaskSuspendAll();                                                            \
+        {                                                                             \
+            if( ( pxStreamBuffer )->xTaskWaitingToSend != NULL )                      \
+            {                                                                         \
+                ( void ) xTaskNotifyIndexed( ( pxStreamBuffer )->xTaskWaitingToSend,  \
+                                             ( pxStreamBuffer )->uxNotificationIndex, \
+                                             ( uint32_t ) 0,                          \
+                                             eNoAction );                             \
+                ( pxStreamBuffer )->xTaskWaitingToSend = NULL;                        \
+            }                                                                         \
+        }                                                                             \
+        ( void ) xTaskResumeAll();                                                    \
+    } while( 0 )
 #endif /* sbRECEIVE_COMPLETED */
 
 /* If user has provided a per-instance receive complete callback, then
@@ -92,23 +94,24 @@
 #endif /* if ( configUSE_SB_COMPLETED_CALLBACK == 1 ) */
 
 #ifndef sbRECEIVE_COMPLETED_FROM_ISR
-    #define sbRECEIVE_COMPLETED_FROM_ISR( pxStreamBuffer,                            \
-                                          pxHigherPriorityTaskWoken )                \
-    do {                                                                             \
-        UBaseType_t uxSavedInterruptStatus;                                          \
-                                                                                     \
-        uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();                      \
-        {                                                                            \
-            if( ( pxStreamBuffer )->xTaskWaitingToSend != NULL )                     \
-            {                                                                        \
-                ( void ) xTaskNotifyFromISR( ( pxStreamBuffer )->xTaskWaitingToSend, \
-                                             ( uint32_t ) 0,                         \
-                                             eNoAction,                              \
-                                             ( pxHigherPriorityTaskWoken ) );        \
-                ( pxStreamBuffer )->xTaskWaitingToSend = NULL;                       \
-            }                                                                        \
-        }                                                                            \
-        taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus );                        \
+    #define sbRECEIVE_COMPLETED_FROM_ISR( pxStreamBuffer,                                    \
+                                          pxHigherPriorityTaskWoken )                        \
+    do {                                                                                     \
+        UBaseType_t uxSavedInterruptStatus;                                                  \
+                                                                                             \
+        uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();                              \
+        {                                                                                    \
+            if( ( pxStreamBuffer )->xTaskWaitingToSend != NULL )                             \
+            {                                                                                \
+                ( void ) xTaskNotifyIndexedFromISR( ( pxStreamBuffer )->xTaskWaitingToSend,  \
+                                                    ( pxStreamBuffer )->uxNotificationIndex, \
+                                                    ( uint32_t ) 0,                          \
+                                                    eNoAction,                               \
+                                                    ( pxHigherPriorityTaskWoken ) );         \
+                ( pxStreamBuffer )->xTaskWaitingToSend = NULL;                               \
+            }                                                                                \
+        }                                                                                    \
+        taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus );                                \
     } while( 0 )
 #endif /* sbRECEIVE_COMPLETED_FROM_ISR */
 
@@ -135,17 +138,18 @@
  * implementation that uses task notifications.
  */
 #ifndef sbSEND_COMPLETED
-    #define sbSEND_COMPLETED( pxStreamBuffer )                               \
-    vTaskSuspendAll();                                                       \
-    {                                                                        \
-        if( ( pxStreamBuffer )->xTaskWaitingToReceive != NULL )              \
-        {                                                                    \
-            ( void ) xTaskNotify( ( pxStreamBuffer )->xTaskWaitingToReceive, \
-                                  ( uint32_t ) 0,                            \
-                                  eNoAction );                               \
-            ( pxStreamBuffer )->xTaskWaitingToReceive = NULL;                \
-        }                                                                    \
-    }                                                                        \
+    #define sbSEND_COMPLETED( pxStreamBuffer )                                      \
+    vTaskSuspendAll();                                                              \
+    {                                                                               \
+        if( ( pxStreamBuffer )->xTaskWaitingToReceive != NULL )                     \
+        {                                                                           \
+            ( void ) xTaskNotifyIndexed( ( pxStreamBuffer )->xTaskWaitingToReceive, \
+                                         ( pxStreamBuffer )->uxNotificationIndex,   \
+                                         ( uint32_t ) 0,                            \
+                                         eNoAction );                               \
+            ( pxStreamBuffer )->xTaskWaitingToReceive = NULL;                       \
+        }                                                                           \
+    }                                                                               \
     ( void ) xTaskResumeAll()
 #endif /* sbSEND_COMPLETED */
 
@@ -153,16 +157,16 @@
  * invoke the callback else use the send complete macro which is provided by default for all instances.
  */
 #if ( configUSE_SB_COMPLETED_CALLBACK == 1 )
-    #define prvSEND_COMPLETED( pxStreamBuffer )                                           \
-    do {                                                                                  \
-        if( ( pxStreamBuffer )->pxSendCompletedCallback != NULL )                         \
-        {                                                                                 \
-            pxStreamBuffer->pxSendCompletedCallback( ( pxStreamBuffer ), pdFALSE, NULL ); \
-        }                                                                                 \
-        else                                                                              \
-        {                                                                                 \
-            sbSEND_COMPLETED( ( pxStreamBuffer ) );                                       \
-        }                                                                                 \
+    #define prvSEND_COMPLETED( pxStreamBuffer )                                               \
+    do {                                                                                      \
+        if( ( pxStreamBuffer )->pxSendCompletedCallback != NULL )                             \
+        {                                                                                     \
+            ( pxStreamBuffer )->pxSendCompletedCallback( ( pxStreamBuffer ), pdFALSE, NULL ); \
+        }                                                                                     \
+        else                                                                                  \
+        {                                                                                     \
+            sbSEND_COMPLETED( ( pxStreamBuffer ) );                                           \
+        }                                                                                     \
     } while( 0 )
 #else /* if ( configUSE_SB_COMPLETED_CALLBACK == 1 ) */
     #define prvSEND_COMPLETED( pxStreamBuffer )    sbSEND_COMPLETED( ( pxStreamBuffer ) )
@@ -170,22 +174,23 @@
 
 
 #ifndef sbSEND_COMPLETE_FROM_ISR
-    #define sbSEND_COMPLETE_FROM_ISR( pxStreamBuffer, pxHigherPriorityTaskWoken )       \
-    do {                                                                                \
-        UBaseType_t uxSavedInterruptStatus;                                             \
-                                                                                        \
-        uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();                         \
-        {                                                                               \
-            if( ( pxStreamBuffer )->xTaskWaitingToReceive != NULL )                     \
-            {                                                                           \
-                ( void ) xTaskNotifyFromISR( ( pxStreamBuffer )->xTaskWaitingToReceive, \
-                                             ( uint32_t ) 0,                            \
-                                             eNoAction,                                 \
-                                             ( pxHigherPriorityTaskWoken ) );           \
-                ( pxStreamBuffer )->xTaskWaitingToReceive = NULL;                       \
-            }                                                                           \
-        }                                                                               \
-        taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus );                           \
+    #define sbSEND_COMPLETE_FROM_ISR( pxStreamBuffer, pxHigherPriorityTaskWoken )              \
+    do {                                                                                       \
+        UBaseType_t uxSavedInterruptStatus;                                                    \
+                                                                                               \
+        uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();                                \
+        {                                                                                      \
+            if( ( pxStreamBuffer )->xTaskWaitingToReceive != NULL )                            \
+            {                                                                                  \
+                ( void ) xTaskNotifyIndexedFromISR( ( pxStreamBuffer )->xTaskWaitingToReceive, \
+                                                    ( pxStreamBuffer )->uxNotificationIndex,   \
+                                                    ( uint32_t ) 0,                            \
+                                                    eNoAction,                                 \
+                                                    ( pxHigherPriorityTaskWoken ) );           \
+                ( pxStreamBuffer )->xTaskWaitingToReceive = NULL;                              \
+            }                                                                                  \
+        }                                                                                      \
+        taskEXIT_CRITICAL_FROM_ISR( uxSavedInterruptStatus );                                  \
     } while( 0 )
 #endif /* sbSEND_COMPLETE_FROM_ISR */
 
@@ -207,8 +212,6 @@
     sbSEND_COMPLETE_FROM_ISR( ( pxStreamBuffer ), ( pxHigherPriorityTaskWoken ) )
 #endif /* if ( configUSE_SB_COMPLETED_CALLBACK == 1 ) */
 
-/*lint -restore (9026) */
-
 /* The number of bytes used to hold the length of a message in the buffer. */
 #define sbBYTES_TO_STORE_MESSAGE_LENGTH    ( sizeof( configMESSAGE_BUFFER_LENGTH_TYPE ) )
 
@@ -219,7 +222,7 @@
 /*-----------------------------------------------------------*/
 
 /* Structure that hold state information on the buffer. */
-typedef struct StreamBufferDef_t                 /*lint !e9058 Style convention uses tag. */
+typedef struct StreamBufferDef_t
 {
     volatile size_t xTail;                       /* Index to the next item to read within the buffer. */
     volatile size_t xHead;                       /* Index to the next item to write within the buffer. */
@@ -238,6 +241,7 @@ typedef struct StreamBufferDef_t                 /*lint !e9058 Style convention 
         StreamBufferCallbackFunction_t pxSendCompletedCallback;    /* Optional callback called on send complete. sbSEND_COMPLETED is called if this is NULL. */
         StreamBufferCallbackFunction_t pxReceiveCompletedCallback; /* Optional callback called on receive complete.  sbRECEIVE_COMPLETED is called if this is NULL. */
     #endif
+    UBaseType_t uxNotificationIndex;                               /* The index we are using for notification, by default tskDEFAULT_INDEX_TO_NOTIFY. */
 } StreamBuffer_t;
 
 /*
@@ -362,7 +366,7 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
          * this is a quirk of the implementation that means otherwise the free
          * space would be reported as one byte smaller than would be logically
          * expected. */
-        if( xBufferSizeBytes < ( xBufferSizeBytes + 1 + sizeof( StreamBuffer_t ) ) )
+        if( xBufferSizeBytes < ( xBufferSizeBytes + 1U + sizeof( StreamBuffer_t ) ) )
         {
             xBufferSizeBytes++;
             pvAllocatedMemory = pvPortMalloc( xBufferSizeBytes + sizeof( StreamBuffer_t ) );
@@ -374,8 +378,14 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
 
         if( pvAllocatedMemory != NULL )
         {
-            prvInitialiseNewStreamBuffer( ( StreamBuffer_t * ) pvAllocatedMemory,                         /* Structure at the start of the allocated memory. */ /*lint !e9087 Safe cast as allocated memory is aligned. */ /*lint !e826 Area is not too small and alignment is guaranteed provided malloc() behaves as expected and returns aligned buffer. */
-                                          ( ( uint8_t * ) pvAllocatedMemory ) + sizeof( StreamBuffer_t ), /* Storage area follows. */ /*lint !e9016 Indexing past structure valid for uint8_t pointer, also storage area has no alignment requirement. */
+            /* MISRA Ref 11.5.1 [Malloc memory assignment] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/MISRA.md#rule-115 */
+            /* coverity[misra_c_2012_rule_11_5_violation] */
+            prvInitialiseNewStreamBuffer( ( StreamBuffer_t * ) pvAllocatedMemory,                         /* Structure at the start of the allocated memory. */
+                                                                                                          /* MISRA Ref 11.5.1 [Malloc memory assignment] */
+                                                                                                          /* More details at: https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/MISRA.md#rule-115 */
+                                                                                                          /* coverity[misra_c_2012_rule_11_5_violation] */
+                                          ( ( uint8_t * ) pvAllocatedMemory ) + sizeof( StreamBuffer_t ), /* Storage area follows. */
                                           xBufferSizeBytes,
                                           xTriggerLevelBytes,
                                           ucFlags,
@@ -391,7 +401,10 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
 
         traceRETURN_xStreamBufferGenericCreate( pvAllocatedMemory );
 
-        return ( StreamBufferHandle_t ) pvAllocatedMemory; /*lint !e9087 !e826 Safe cast as allocated memory is aligned. */
+        /* MISRA Ref 11.5.1 [Malloc memory assignment] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/MISRA.md#rule-115 */
+        /* coverity[misra_c_2012_rule_11_5_violation] */
+        return ( StreamBufferHandle_t ) pvAllocatedMemory;
     }
 #endif /* configSUPPORT_DYNAMIC_ALLOCATION */
 /*-----------------------------------------------------------*/
@@ -406,7 +419,10 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
                                                            StreamBufferCallbackFunction_t pxSendCompletedCallback,
                                                            StreamBufferCallbackFunction_t pxReceiveCompletedCallback )
     {
-        StreamBuffer_t * const pxStreamBuffer = ( StreamBuffer_t * ) pxStaticStreamBuffer; /*lint !e740 !e9087 Safe cast as StaticStreamBuffer_t is opaque Streambuffer_t. */
+        /* MISRA Ref 11.3.1 [Misaligned access] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/MISRA.md#rule-113 */
+        /* coverity[misra_c_2012_rule_11_3_violation] */
+        StreamBuffer_t * const pxStreamBuffer = ( StreamBuffer_t * ) pxStaticStreamBuffer;
         StreamBufferHandle_t xReturn;
         uint8_t ucFlags;
 
@@ -447,7 +463,7 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
              * message buffer structure. */
             volatile size_t xSize = sizeof( StaticStreamBuffer_t );
             configASSERT( xSize == sizeof( StreamBuffer_t ) );
-        } /*lint !e529 xSize is referenced is configASSERT() is defined. */
+        }
         #endif /* configASSERT_DEFINED */
 
         if( ( pucStreamBufferStorageArea != NULL ) && ( pxStaticStreamBuffer != NULL ) )
@@ -466,7 +482,10 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
 
             traceSTREAM_BUFFER_CREATE( pxStreamBuffer, xIsMessageBuffer );
 
-            xReturn = ( StreamBufferHandle_t ) pxStaticStreamBuffer; /*lint !e9087 Data hiding requires cast to opaque type. */
+            /* MISRA Ref 11.3.1 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            xReturn = ( StreamBufferHandle_t ) pxStaticStreamBuffer;
         }
         else
         {
@@ -498,6 +517,9 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
         if( ( pxStreamBuffer->ucFlags & sbFLAGS_IS_STATICALLY_ALLOCATED ) != ( uint8_t ) 0 )
         {
             *ppucStreamBufferStorageArea = pxStreamBuffer->pucBuffer;
+            /* MISRA Ref 11.3.1 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
             *ppxStaticStreamBuffer = ( StaticStreamBuffer_t * ) pxStreamBuffer;
             xReturn = pdTRUE;
         }
@@ -529,7 +551,7 @@ void vStreamBufferDelete( StreamBufferHandle_t xStreamBuffer )
         {
             /* Both the structure and the buffer were allocated using a single call
             * to pvPortMalloc(), hence only one call to vPortFree() is required. */
-            vPortFree( ( void * ) pxStreamBuffer ); /*lint !e9087 Standard free() semantics require void *, plus pxStreamBuffer was allocated by pvPortMalloc(). */
+            vPortFree( ( void * ) pxStreamBuffer );
         }
         #else
         {
@@ -773,7 +795,7 @@ size_t xStreamBufferSend( StreamBufferHandle_t xStreamBuffer,
                 if( xSpace < xRequiredSpace )
                 {
                     /* Clear notification state as going to wait for space. */
-                    ( void ) xTaskNotifyStateClear( NULL );
+                    ( void ) xTaskNotifyStateClearIndexed( NULL, pxStreamBuffer->uxNotificationIndex );
 
                     /* Should only be one writer. */
                     configASSERT( pxStreamBuffer->xTaskWaitingToSend == NULL );
@@ -788,7 +810,7 @@ size_t xStreamBufferSend( StreamBufferHandle_t xStreamBuffer,
             taskEXIT_CRITICAL();
 
             traceBLOCKING_ON_STREAM_BUFFER_SEND( xStreamBuffer );
-            ( void ) xTaskNotifyWait( ( uint32_t ) 0, ( uint32_t ) 0, NULL, xTicksToWait );
+            ( void ) xTaskNotifyWaitIndexed( pxStreamBuffer->uxNotificationIndex, ( uint32_t ) 0, ( uint32_t ) 0, NULL, xTicksToWait );
             pxStreamBuffer->xTaskWaitingToSend = NULL;
         } while( xTaskCheckForTimeOut( &xTimeOut, &xTicksToWait ) == pdFALSE );
     }
@@ -931,7 +953,10 @@ static size_t prvWriteMessageToBuffer( StreamBuffer_t * const pxStreamBuffer,
     if( xDataLengthBytes != ( size_t ) 0 )
     {
         /* Write the data to the buffer. */
-        pxStreamBuffer->xHead = prvWriteBytesToBuffer( pxStreamBuffer, ( const uint8_t * ) pvTxData, xDataLengthBytes, xNextHead ); /*lint !e9079 Storage buffer is implemented as uint8_t for ease of sizing, alignment and access. */
+        /* MISRA Ref 11.5.5 [Void pointer assignment] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/MISRA.md#rule-115 */
+        /* coverity[misra_c_2012_rule_11_5_violation] */
+        pxStreamBuffer->xHead = prvWriteBytesToBuffer( pxStreamBuffer, ( const uint8_t * ) pvTxData, xDataLengthBytes, xNextHead );
     }
 
     return xDataLengthBytes;
@@ -981,7 +1006,7 @@ size_t xStreamBufferReceive( StreamBufferHandle_t xStreamBuffer,
             if( xBytesAvailable <= xBytesToStoreMessageLength )
             {
                 /* Clear notification state as going to wait for data. */
-                ( void ) xTaskNotifyStateClear( NULL );
+                ( void ) xTaskNotifyStateClearIndexed( NULL, pxStreamBuffer->uxNotificationIndex );
 
                 /* Should only be one reader. */
                 configASSERT( pxStreamBuffer->xTaskWaitingToReceive == NULL );
@@ -998,7 +1023,7 @@ size_t xStreamBufferReceive( StreamBufferHandle_t xStreamBuffer,
         {
             /* Wait for data to be available. */
             traceBLOCKING_ON_STREAM_BUFFER_RECEIVE( xStreamBuffer );
-            ( void ) xTaskNotifyWait( ( uint32_t ) 0, ( uint32_t ) 0, NULL, xTicksToWait );
+            ( void ) xTaskNotifyWaitIndexed( pxStreamBuffer->uxNotificationIndex, ( uint32_t ) 0, ( uint32_t ) 0, NULL, xTicksToWait );
             pxStreamBuffer->xTaskWaitingToReceive = NULL;
 
             /* Recheck the data available after blocking. */
@@ -1195,7 +1220,10 @@ static size_t prvReadMessageFromBuffer( StreamBuffer_t * pxStreamBuffer,
     if( xCount != ( size_t ) 0 )
     {
         /* Read the actual data and update the tail to mark the data as officially consumed. */
-        pxStreamBuffer->xTail = prvReadBytesFromBuffer( pxStreamBuffer, ( uint8_t * ) pvRxData, xCount, xNextTail ); /*lint !e9079 Data storage area is implemented as uint8_t array for ease of sizing, indexing and alignment. */
+        /* MISRA Ref 11.5.5 [Void pointer assignment] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/MISRA.md#rule-115 */
+        /* coverity[misra_c_2012_rule_11_5_violation] */
+        pxStreamBuffer->xTail = prvReadBytesFromBuffer( pxStreamBuffer, ( uint8_t * ) pvRxData, xCount, xNextTail );
     }
 
     return xCount;
@@ -1284,10 +1312,11 @@ BaseType_t xStreamBufferSendCompletedFromISR( StreamBufferHandle_t xStreamBuffer
     {
         if( ( pxStreamBuffer )->xTaskWaitingToReceive != NULL )
         {
-            ( void ) xTaskNotifyFromISR( ( pxStreamBuffer )->xTaskWaitingToReceive,
-                                         ( uint32_t ) 0,
-                                         eNoAction,
-                                         pxHigherPriorityTaskWoken );
+            ( void ) xTaskNotifyIndexedFromISR( ( pxStreamBuffer )->xTaskWaitingToReceive,
+                                                ( pxStreamBuffer )->uxNotificationIndex,
+                                                ( uint32_t ) 0,
+                                                eNoAction,
+                                                pxHigherPriorityTaskWoken );
             ( pxStreamBuffer )->xTaskWaitingToReceive = NULL;
             xReturn = pdTRUE;
         }
@@ -1319,10 +1348,11 @@ BaseType_t xStreamBufferReceiveCompletedFromISR( StreamBufferHandle_t xStreamBuf
     {
         if( ( pxStreamBuffer )->xTaskWaitingToSend != NULL )
         {
-            ( void ) xTaskNotifyFromISR( ( pxStreamBuffer )->xTaskWaitingToSend,
-                                         ( uint32_t ) 0,
-                                         eNoAction,
-                                         pxHigherPriorityTaskWoken );
+            ( void ) xTaskNotifyIndexedFromISR( ( pxStreamBuffer )->xTaskWaitingToSend,
+                                                ( pxStreamBuffer )->uxNotificationIndex,
+                                                ( uint32_t ) 0,
+                                                eNoAction,
+                                                pxHigherPriorityTaskWoken );
             ( pxStreamBuffer )->xTaskWaitingToSend = NULL;
             xReturn = pdTRUE;
         }
@@ -1355,7 +1385,7 @@ static size_t prvWriteBytesToBuffer( StreamBuffer_t * const pxStreamBuffer,
 
     /* Write as many bytes as can be written in the first write. */
     configASSERT( ( xHead + xFirstLength ) <= pxStreamBuffer->xLength );
-    ( void ) memcpy( ( void * ) ( &( pxStreamBuffer->pucBuffer[ xHead ] ) ), ( const void * ) pucData, xFirstLength ); /*lint !e9087 memcpy() requires void *. */
+    ( void ) memcpy( ( void * ) ( &( pxStreamBuffer->pucBuffer[ xHead ] ) ), ( const void * ) pucData, xFirstLength );
 
     /* If the number of bytes written was less than the number that could be
      * written in the first write... */
@@ -1363,7 +1393,7 @@ static size_t prvWriteBytesToBuffer( StreamBuffer_t * const pxStreamBuffer,
     {
         /* ...then write the remaining bytes to the start of the buffer. */
         configASSERT( ( xCount - xFirstLength ) <= pxStreamBuffer->xLength );
-        ( void ) memcpy( ( void * ) pxStreamBuffer->pucBuffer, ( const void * ) &( pucData[ xFirstLength ] ), xCount - xFirstLength ); /*lint !e9087 memcpy() requires void *. */
+        ( void ) memcpy( ( void * ) pxStreamBuffer->pucBuffer, ( const void * ) &( pucData[ xFirstLength ] ), xCount - xFirstLength );
     }
     else
     {
@@ -1403,14 +1433,14 @@ static size_t prvReadBytesFromBuffer( StreamBuffer_t * pxStreamBuffer,
      * read.  Asserts check bounds of read and write. */
     configASSERT( xFirstLength <= xCount );
     configASSERT( ( xTail + xFirstLength ) <= pxStreamBuffer->xLength );
-    ( void ) memcpy( ( void * ) pucData, ( const void * ) &( pxStreamBuffer->pucBuffer[ xTail ] ), xFirstLength ); /*lint !e9087 memcpy() requires void *. */
+    ( void ) memcpy( ( void * ) pucData, ( const void * ) &( pxStreamBuffer->pucBuffer[ xTail ] ), xFirstLength );
 
     /* If the total number of wanted bytes is greater than the number
      * that could be read in the first read... */
     if( xCount > xFirstLength )
     {
         /* ...then read the remaining bytes from the start of the buffer. */
-        ( void ) memcpy( ( void * ) &( pucData[ xFirstLength ] ), ( void * ) ( pxStreamBuffer->pucBuffer ), xCount - xFirstLength ); /*lint !e9087 memcpy() requires void *. */
+        ( void ) memcpy( ( void * ) &( pucData[ xFirstLength ] ), ( void * ) ( pxStreamBuffer->pucBuffer ), xCount - xFirstLength );
     }
     else
     {
@@ -1471,11 +1501,12 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
     }
     #endif
 
-    ( void ) memset( ( void * ) pxStreamBuffer, 0x00, sizeof( StreamBuffer_t ) ); /*lint !e9087 memset() requires void *. */
+    ( void ) memset( ( void * ) pxStreamBuffer, 0x00, sizeof( StreamBuffer_t ) );
     pxStreamBuffer->pucBuffer = pucBuffer;
     pxStreamBuffer->xLength = xBufferSizeBytes;
     pxStreamBuffer->xTriggerLevelBytes = xTriggerLevelBytes;
     pxStreamBuffer->ucFlags = ucFlags;
+    pxStreamBuffer->uxNotificationIndex = tskDEFAULT_INDEX_TO_NOTIFY;
     #if ( configUSE_SB_COMPLETED_CALLBACK == 1 )
     {
         pxStreamBuffer->pxSendCompletedCallback = pxSendCompletedCallback;
@@ -1483,11 +1514,55 @@ static void prvInitialiseNewStreamBuffer( StreamBuffer_t * const pxStreamBuffer,
     }
     #else
     {
+        /* MISRA Ref 11.1.1 [Object type casting] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/MISRA.md#rule-111 */
+        /* coverity[misra_c_2012_rule_11_1_violation] */
         ( void ) pxSendCompletedCallback;
+
+        /* MISRA Ref 11.1.1 [Object type casting] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Kernel/blob/main/MISRA.md#rule-111 */
+        /* coverity[misra_c_2012_rule_11_1_violation] */
         ( void ) pxReceiveCompletedCallback;
     }
-    #endif
+    #endif /* if ( configUSE_SB_COMPLETED_CALLBACK == 1 ) */
 }
+/*-----------------------------------------------------------*/
+
+UBaseType_t uxStreamBufferGetStreamBufferNotificationIndex( StreamBufferHandle_t xStreamBuffer )
+{
+    StreamBuffer_t * const pxStreamBuffer = xStreamBuffer;
+
+    traceENTER_uxStreamBufferGetStreamBufferNotificationIndex( xStreamBuffer );
+
+    configASSERT( pxStreamBuffer );
+
+    traceRETURN_uxStreamBufferGetStreamBufferNotificationIndex( pxStreamBuffer->uxNotificationIndex );
+
+    return pxStreamBuffer->uxNotificationIndex;
+}
+/*-----------------------------------------------------------*/
+
+void vStreamBufferSetStreamBufferNotificationIndex( StreamBufferHandle_t xStreamBuffer,
+                                                    UBaseType_t uxNotificationIndex )
+{
+    StreamBuffer_t * const pxStreamBuffer = xStreamBuffer;
+
+    traceENTER_vStreamBufferSetStreamBufferNotificationIndex( xStreamBuffer, uxNotificationIndex );
+
+    configASSERT( pxStreamBuffer );
+
+    /* There should be no task waiting otherwise we'd never resume them. */
+    configASSERT( pxStreamBuffer->xTaskWaitingToReceive == NULL );
+    configASSERT( pxStreamBuffer->xTaskWaitingToSend == NULL );
+
+    /* Check that the task notification index is valid. */
+    configASSERT( uxNotificationIndex < configTASK_NOTIFICATION_ARRAY_ENTRIES );
+
+    pxStreamBuffer->uxNotificationIndex = uxNotificationIndex;
+
+    traceRETURN_vStreamBufferSetStreamBufferNotificationIndex();
+}
+/*-----------------------------------------------------------*/
 
 #if ( configUSE_TRACE_FACILITY == 1 )
 

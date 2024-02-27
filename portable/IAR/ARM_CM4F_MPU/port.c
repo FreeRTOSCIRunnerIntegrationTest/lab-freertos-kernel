@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -41,6 +41,7 @@
 /* Scheduler includes. */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "mpu_syscall_numbers.h"
 
 #undef MPU_WRAPPERS_INCLUDED_FROM_API_FILE
 
@@ -67,6 +68,9 @@
     #warning "configALLOW_UNPRIVILEGED_CRITICAL_SECTIONS is not defined. We recommend defining it to 0 in FreeRTOSConfig.h for better security."
     #define configALLOW_UNPRIVILEGED_CRITICAL_SECTIONS    1
 #endif
+
+/* Prototype of all Interrupt Service Routines (ISRs). */
+typedef void ( * portISR_t )( void );
 
 /* Constants required to manipulate the core.  Registers first... */
 #define portNVIC_SYSTICK_CTRL_REG                 ( *( ( volatile uint32_t * ) 0xe000e010 ) )
@@ -107,7 +111,11 @@
 #define portMIN_INTERRUPT_PRIORITY                ( 255UL )
 #define portNVIC_PENDSV_PRI                       ( ( ( uint32_t ) portMIN_INTERRUPT_PRIORITY ) << 16UL )
 #define portNVIC_SYSTICK_PRI                      ( ( ( uint32_t ) portMIN_INTERRUPT_PRIORITY ) << 24UL )
-#define portNVIC_SVC_PRI                          ( ( ( uint32_t ) configMAX_SYSCALL_INTERRUPT_PRIORITY - 1UL ) << 24UL )
+
+/* Constants used to check the installation of the FreeRTOS interrupt handlers. */
+#define portSCB_VTOR_REG                          ( *( ( portISR_t ** ) 0xE000ED08 ) )
+#define portVECTOR_INDEX_SVC                      ( 11 )
+#define portVECTOR_INDEX_PENDSV                   ( 14 )
 
 /* Constants required to check the validity of an interrupt priority. */
 #define portFIRST_USER_INTERRUPT_NUMBER           ( 16 )
@@ -236,29 +244,22 @@ extern void vPortRestoreContextOfFirstTask( void ) PRIVILEGED_FUNCTION;
  * @brief Sets up the system call stack so that upon returning from
  * SVC, the system call stack is used.
  *
- * It is used for the system calls with up to 4 parameters.
- *
  * @param pulTaskStack The current SP when the SVC was raised.
  * @param ulLR The value of Link Register (EXC_RETURN) in the SVC handler.
+ * @param ucSystemCallNumber The system call number of the system call.
  */
     void vSystemCallEnter( uint32_t * pulTaskStack,
-                           uint32_t ulLR ) PRIVILEGED_FUNCTION;
+                           uint32_t ulLR,
+                           uint8_t ucSystemCallNumber ) PRIVILEGED_FUNCTION;
 
 #endif /* #if ( configUSE_MPU_WRAPPERS_V1 == 0 ) */
 
 #if ( configUSE_MPU_WRAPPERS_V1 == 0 )
 
 /**
- * @brief Sets up the system call stack so that upon returning from
- * SVC, the system call stack is used.
- *
- * It is used for the system calls with 5 parameters.
- *
- * @param pulTaskStack The current SP when the SVC was raised.
- * @param ulLR The value of Link Register (EXC_RETURN) in the SVC handler.
+ * @brief Raise SVC for exiting from a system call.
  */
-    void vSystemCallEnter_1( uint32_t * pulTaskStack,
-                             uint32_t ulLR ) PRIVILEGED_FUNCTION;
+    void vRequestSystemCallExit( void ) __attribute__( ( naked ) ) PRIVILEGED_FUNCTION;
 
 #endif /* #if ( configUSE_MPU_WRAPPERS_V1 == 0 ) */
 
@@ -283,11 +284,30 @@ extern void vPortRestoreContextOfFirstTask( void ) PRIVILEGED_FUNCTION;
  */
 BaseType_t xPortIsTaskPrivileged( void ) PRIVILEGED_FUNCTION;
 
+/**
+ * @brief Make a task unprivileged.
+ */
+void vPortSwitchToUserMode( void );
+
+/*
+ * FreeRTOS handlers implemented in assembly.
+ */
+extern void vPortSVCHandler( void ) PRIVILEGED_FUNCTION;
+extern void xPortPendSVHandler( void ) PRIVILEGED_FUNCTION;
 /*-----------------------------------------------------------*/
 
 /* Each task maintains its own interrupt status in the critical nesting
  * variable. */
 static UBaseType_t uxCriticalNesting = 0xaaaaaaaa;
+
+#if ( ( configUSE_MPU_WRAPPERS_V1 == 0 ) && ( configENABLE_ACCESS_CONTROL_LIST == 1 ) )
+
+/*
+ * This variable is set to pdTRUE when the scheduler is started.
+ */
+    PRIVILEGED_DATA static BaseType_t xSchedulerRunning = pdFALSE;
+
+#endif
 
 /*
  * Used by the portASSERT_IF_INTERRUPT_PRIORITY_INVALID() macro to ensure
@@ -318,7 +338,7 @@ StackType_t * pxPortInitialiseStack( StackType_t * pxTopOfStack,
     }
     else
     {
-        xMPUSettings->ulTaskFlags &= ( ~portTASK_IS_PRIVILEGED_FLAG );
+        xMPUSettings->ulTaskFlags &= ( ~( portTASK_IS_PRIVILEGED_FLAG ) );
         xMPUSettings->ulContext[ 0 ] = portINITIAL_CONTROL_IF_UNPRIVILEGED;
     }
 
@@ -363,10 +383,10 @@ void vPortSVCHandler_C( uint32_t * pulParam ) /* PRIVILEGED_FUNCTION */
     uint8_t ucSVCNumber;
     uint32_t ulPC;
 
-    #if ( configENFORCE_SYSTEM_CALLS_FROM_KERNEL_ONLY == 1 )
+    #if ( ( configUSE_MPU_WRAPPERS_V1 == 1 ) && ( configENFORCE_SYSTEM_CALLS_FROM_KERNEL_ONLY == 1 ) )
         extern uint32_t __syscalls_flash_start__[];
         extern uint32_t __syscalls_flash_end__[];
-    #endif /* #if( configENFORCE_SYSTEM_CALLS_FROM_KERNEL_ONLY == 1 ) */
+    #endif /* #if ( ( configUSE_MPU_WRAPPERS_V1 == 1 ) && ( configENFORCE_SYSTEM_CALLS_FROM_KERNEL_ONLY == 1 ) ) */
 
     /* The stack contains: r0, r1, r2, r3, r12, LR, PC and xPSR. The first
      * argument (r0) is pulParam[ 0 ]. */
@@ -376,7 +396,6 @@ void vPortSVCHandler_C( uint32_t * pulParam ) /* PRIVILEGED_FUNCTION */
     switch( ucSVCNumber )
     {
         case portSVC_START_SCHEDULER:
-            portNVIC_SHPR2_REG |= portNVIC_SVC_PRI;
             vPortRestoreContextOfFirstTask();
             break;
 
@@ -392,26 +411,15 @@ void vPortSVCHandler_C( uint32_t * pulParam ) /* PRIVILEGED_FUNCTION */
 
             break;
 
-            #if ( configENFORCE_SYSTEM_CALLS_FROM_KERNEL_ONLY == 1 )
-                case portSVC_RAISE_PRIVILEGE: /* Only raise the privilege, if the
-                                               * svc was raised from any of the
-                                               * system calls. */
+    #if ( configUSE_MPU_WRAPPERS_V1 == 1 )
+        #if ( configENFORCE_SYSTEM_CALLS_FROM_KERNEL_ONLY == 1 )
+            case portSVC_RAISE_PRIVILEGE: /* Only raise the privilege, if the
+                                           * svc was raised from any of the
+                                           * system calls. */
 
-                    if( ( ulPC >= ( uint32_t ) __syscalls_flash_start__ ) &&
-                        ( ulPC <= ( uint32_t ) __syscalls_flash_end__ ) )
-                    {
-                        __asm volatile
-                        (
-                            "   mrs r1, control     \n" /* Obtain current control value. */
-                            "   bic r1, r1, #1      \n" /* Set privilege bit. */
-                            "   msr control, r1     \n" /* Write back new control value. */
-                            ::: "r1", "memory"
-                        );
-                    }
-
-                    break;
-            #else /* if ( configENFORCE_SYSTEM_CALLS_FROM_KERNEL_ONLY == 1 ) */
-                case portSVC_RAISE_PRIVILEGE:
+                if( ( ulPC >= ( uint32_t ) __syscalls_flash_start__ ) &&
+                    ( ulPC <= ( uint32_t ) __syscalls_flash_end__ ) )
+                {
                     __asm volatile
                     (
                         "   mrs r1, control     \n" /* Obtain current control value. */
@@ -419,11 +427,24 @@ void vPortSVCHandler_C( uint32_t * pulParam ) /* PRIVILEGED_FUNCTION */
                         "   msr control, r1     \n" /* Write back new control value. */
                         ::: "r1", "memory"
                     );
-                    break;
-                    #endif /* #if( configENFORCE_SYSTEM_CALLS_FROM_KERNEL_ONLY == 1 ) */
+                }
 
-                default: /* Unknown SVC call. */
-                    break;
+                break;
+        #else /* if ( configENFORCE_SYSTEM_CALLS_FROM_KERNEL_ONLY == 1 ) */
+            case portSVC_RAISE_PRIVILEGE:
+                __asm volatile
+                (
+                    "   mrs r1, control     \n" /* Obtain current control value. */
+                    "   bic r1, r1, #1      \n" /* Set privilege bit. */
+                    "   msr control, r1     \n" /* Write back new control value. */
+                    ::: "r1", "memory"
+                );
+                break;
+        #endif /* #if( configENFORCE_SYSTEM_CALLS_FROM_KERNEL_ONLY == 1 ) */
+    #endif /* #if ( configUSE_MPU_WRAPPERS_V1 == 1 ) */
+
+        default: /* Unknown SVC call. */
+            break;
     }
 }
 /*-----------------------------------------------------------*/
@@ -431,15 +452,16 @@ void vPortSVCHandler_C( uint32_t * pulParam ) /* PRIVILEGED_FUNCTION */
 #if ( configUSE_MPU_WRAPPERS_V1 == 0 )
 
     void vSystemCallEnter( uint32_t * pulTaskStack,
-                           uint32_t ulLR ) /* PRIVILEGED_FUNCTION */
+                           uint32_t ulLR,
+                           uint8_t ucSystemCallNumber ) /* PRIVILEGED_FUNCTION */
     {
         extern TaskHandle_t pxCurrentTCB;
+        extern UBaseType_t uxSystemCallImplementations[ NUM_SYSTEM_CALLS ];
         xMPU_SETTINGS * pxMpuSettings;
         uint32_t * pulSystemCallStack;
         uint32_t ulStackFrameSize, ulSystemCallLocation, i;
 
         #if defined( __ARMCC_VERSION )
-
             /* Declaration when these variable are defined in code instead of being
              * exported from linker scripts. */
             extern uint32_t * __syscalls_flash_start__;
@@ -451,16 +473,26 @@ void vPortSVCHandler_C( uint32_t * pulParam ) /* PRIVILEGED_FUNCTION */
         #endif /* #if defined( __ARMCC_VERSION ) */
 
         ulSystemCallLocation = pulTaskStack[ portOFFSET_TO_PC ];
+        pxMpuSettings = xTaskGetMPUSettings( pxCurrentTCB );
 
-        /* If the request did not come from the system call section, do nothing. */
+        /* Checks:
+         * 1. SVC is raised from the system call section (i.e. application is
+         *    not raising SVC directly).
+         * 2. pxMpuSettings->xSystemCallStackInfo.pulTaskStack must be NULL as
+         *    it is non-NULL only during the execution of a system call (i.e.
+         *    between system call enter and exit).
+         * 3. System call is not for a kernel API disabled by the configuration
+         *    in FreeRTOSConfig.h.
+         * 4. We do not need to check that ucSystemCallNumber is within range
+         *    because the assembly SVC handler checks that before calling
+         *    this function.
+         */
         if( ( ulSystemCallLocation >= ( uint32_t ) __syscalls_flash_start__ ) &&
-            ( ulSystemCallLocation <= ( uint32_t ) __syscalls_flash_end__ ) )
+            ( ulSystemCallLocation <= ( uint32_t ) __syscalls_flash_end__ ) &&
+            ( pxMpuSettings->xSystemCallStackInfo.pulTaskStack == NULL ) &&
+            ( uxSystemCallImplementations[ ucSystemCallNumber ] != ( UBaseType_t ) 0 ) )
         {
-            pxMpuSettings = xTaskGetMPUSettings( pxCurrentTCB );
             pulSystemCallStack = pxMpuSettings->xSystemCallStackInfo.pulSystemCallStack;
-
-            /* This is not NULL only for the duration of the system call. */
-            configASSERT( pxMpuSettings->xSystemCallStackInfo.pulTaskStack == NULL );
 
             if( ( ulLR & portEXC_RETURN_STACK_FRAME_TYPE_MASK ) == 0UL )
             {
@@ -502,9 +534,18 @@ void vPortSVCHandler_C( uint32_t * pulParam ) /* PRIVILEGED_FUNCTION */
              * the system call. */
             pxMpuSettings->xSystemCallStackInfo.pulTaskStack = pulTaskStack + ulStackFrameSize;
 
-            /* Store the value of the Link Register before the SVC was raised. We need to
-             * restore it when we exit from the system call. */
+            /* Store the value of the Link Register before the SVC was raised.
+             * It contains the address of the caller of the System Call entry
+             * point (i.e. the caller of the MPU_<API>). We need to restore it
+             * when we exit from the system call. */
             pxMpuSettings->xSystemCallStackInfo.ulLinkRegisterAtSystemCallEntry = pulTaskStack[ portOFFSET_TO_LR ];
+
+
+            /* Start executing the system call upon returning from this handler. */
+            pulSystemCallStack[ portOFFSET_TO_PC ] = uxSystemCallImplementations[ ucSystemCallNumber ];
+            /* Raise a request to exit from the system call upon finishing the
+             * system call. */
+            pulSystemCallStack[ portOFFSET_TO_LR ] = ( uint32_t ) vRequestSystemCallExit;
 
             /* Record if the hardware used padding to force the stack pointer
              * to be double word aligned. */
@@ -529,108 +570,9 @@ void vPortSVCHandler_C( uint32_t * pulParam ) /* PRIVILEGED_FUNCTION */
 
 #if ( configUSE_MPU_WRAPPERS_V1 == 0 )
 
-    void vSystemCallEnter_1( uint32_t * pulTaskStack,
-                             uint32_t ulLR ) /* PRIVILEGED_FUNCTION */
+    void vRequestSystemCallExit( void ) /* __attribute__( ( naked ) ) PRIVILEGED_FUNCTION */
     {
-        extern TaskHandle_t pxCurrentTCB;
-        xMPU_SETTINGS * pxMpuSettings;
-        uint32_t * pulSystemCallStack;
-        uint32_t ulStackFrameSize, ulSystemCallLocation, i;
-
-        #if defined( __ARMCC_VERSION )
-
-            /* Declaration when these variable are defined in code instead of being
-             * exported from linker scripts. */
-            extern uint32_t * __syscalls_flash_start__;
-            extern uint32_t * __syscalls_flash_end__;
-        #else
-            /* Declaration when these variable are exported from linker scripts. */
-            extern uint32_t __syscalls_flash_start__[];
-            extern uint32_t __syscalls_flash_end__[];
-        #endif /* #if defined( __ARMCC_VERSION ) */
-
-        ulSystemCallLocation = pulTaskStack[ portOFFSET_TO_PC ];
-
-        /* If the request did not come from the system call section, do nothing. */
-        if( ( ulSystemCallLocation >= ( uint32_t ) __syscalls_flash_start__ ) &&
-            ( ulSystemCallLocation <= ( uint32_t ) __syscalls_flash_end__ ) )
-        {
-            pxMpuSettings = xTaskGetMPUSettings( pxCurrentTCB );
-            pulSystemCallStack = pxMpuSettings->xSystemCallStackInfo.pulSystemCallStack;
-
-            /* This is not NULL only for the duration of the system call. */
-            configASSERT( pxMpuSettings->xSystemCallStackInfo.pulTaskStack == NULL );
-
-            if( ( ulLR & portEXC_RETURN_STACK_FRAME_TYPE_MASK ) == 0UL )
-            {
-                /* Extended frame i.e. FPU in use. */
-                ulStackFrameSize = 26;
-                __asm volatile (
-                    " vpush {s0}         \n" /* Trigger lazy stacking. */
-                    " vpop  {s0}         \n" /* Nullify the affect of the above instruction. */
-                    ::: "memory"
-                    );
-            }
-            else
-            {
-                /* Standard frame i.e. FPU not in use. */
-                ulStackFrameSize = 8;
-            }
-
-            /* Make space on the system call stack for the stack frame and
-             * the parameter passed on the stack. We only need to copy one
-             * parameter but we still reserve 2 spaces to keep the stack
-             * double word aligned. */
-            pulSystemCallStack = pulSystemCallStack - ulStackFrameSize - 2UL;
-
-            /* Copy the stack frame. */
-            for( i = 0; i < ulStackFrameSize; i++ )
-            {
-                pulSystemCallStack[ i ] = pulTaskStack[ i ];
-            }
-
-            /* Copy the parameter which is passed the stack. */
-            if( ( pulTaskStack[ portOFFSET_TO_PSR ] & portPSR_STACK_PADDING_MASK ) == portPSR_STACK_PADDING_MASK )
-            {
-                pulSystemCallStack[ ulStackFrameSize ] = pulTaskStack[ ulStackFrameSize + 1 ];
-
-                /* Record if the hardware used padding to force the stack pointer
-                 * to be double word aligned. */
-                pxMpuSettings->ulTaskFlags |= portSTACK_FRAME_HAS_PADDING_FLAG;
-            }
-            else
-            {
-                pulSystemCallStack[ ulStackFrameSize ] = pulTaskStack[ ulStackFrameSize ];
-
-                /* Record if the hardware used padding to force the stack pointer
-                 * to be double word aligned. */
-                pxMpuSettings->ulTaskFlags &= ( ~portSTACK_FRAME_HAS_PADDING_FLAG );
-            }
-
-            /* Use the pulSystemCallStack in thread mode. */
-            __asm volatile ( "msr psp, %0" : : "r" ( pulSystemCallStack ) );
-
-            /* Raise the privilege for the duration of the system call. */
-            __asm volatile (
-                " mrs r1, control     \n" /* Obtain current control value. */
-                " bic r1, #1          \n" /* Clear nPRIV bit. */
-                " msr control, r1     \n" /* Write back new control value. */
-                ::: "r1", "memory"
-                );
-
-            /* Remember the location where we should copy the stack frame when we exit from
-             * the system call. */
-            pxMpuSettings->xSystemCallStackInfo.pulTaskStack = pulTaskStack + ulStackFrameSize;
-
-            /* Store the value of the Link Register before the SVC was raised. We need to
-             * restore it when we exit from the system call. */
-            pxMpuSettings->xSystemCallStackInfo.ulLinkRegisterAtSystemCallEntry = pulTaskStack[ portOFFSET_TO_LR ];
-
-            /* We ensure in pxPortInitialiseStack that the system call stack is
-             * double word aligned and therefore, there is no need of padding.
-             * Clear the bit[9] of stacked xPSR. */
-            pulSystemCallStack[ portOFFSET_TO_PSR ] &= ( ~portPSR_STACK_PADDING_MASK );
-        }
+        __asm volatile ( "svc %0 \n" ::"i" ( portSVC_SYSTEM_CALL_EXIT ) : "memory" );
     }
 
 #endif /* #if ( configUSE_MPU_WRAPPERS_V1 == 0 ) */
@@ -647,24 +589,32 @@ void vPortSVCHandler_C( uint32_t * pulParam ) /* PRIVILEGED_FUNCTION */
         uint32_t ulStackFrameSize, ulSystemCallLocation, i;
 
         #if defined( __ARMCC_VERSION )
-
             /* Declaration when these variable are defined in code instead of being
              * exported from linker scripts. */
-            extern uint32_t * __syscalls_flash_start__;
-            extern uint32_t * __syscalls_flash_end__;
+            extern uint32_t * __privileged_functions_start__;
+            extern uint32_t * __privileged_functions_end__;
         #else
             /* Declaration when these variable are exported from linker scripts. */
-            extern uint32_t __syscalls_flash_start__[];
-            extern uint32_t __syscalls_flash_end__[];
+            extern uint32_t __privileged_functions_start__[];
+            extern uint32_t __privileged_functions_end__[];
         #endif /* #if defined( __ARMCC_VERSION ) */
 
         ulSystemCallLocation = pulSystemCallStack[ portOFFSET_TO_PC ];
+        pxMpuSettings = xTaskGetMPUSettings( pxCurrentTCB );
 
-        /* If the request did not come from the system call section, do nothing. */
-        if( ( ulSystemCallLocation >= ( uint32_t ) __syscalls_flash_start__ ) &&
-            ( ulSystemCallLocation <= ( uint32_t ) __syscalls_flash_end__ ) )
+        /* Checks:
+         * 1. SVC is raised from the privileged code (i.e. application is not
+         *    raising SVC directly). This SVC is only raised from
+         *    vRequestSystemCallExit which is in the privileged code section.
+         * 2. pxMpuSettings->xSystemCallStackInfo.pulTaskStack must not be NULL -
+         *    this means that we previously entered a system call and the
+         *    application is not attempting to exit without entering a system
+         *    call.
+         */
+        if( ( ulSystemCallLocation >= ( uint32_t ) __privileged_functions_start__ ) &&
+            ( ulSystemCallLocation <= ( uint32_t ) __privileged_functions_end__ ) &&
+            ( pxMpuSettings->xSystemCallStackInfo.pulTaskStack != NULL ) )
         {
-            pxMpuSettings = xTaskGetMPUSettings( pxCurrentTCB );
             pulTaskStack = pxMpuSettings->xSystemCallStackInfo.pulTaskStack;
 
             if( ( ulLR & portEXC_RETURN_STACK_FRAME_TYPE_MASK ) == 0UL )
@@ -703,8 +653,10 @@ void vPortSVCHandler_C( uint32_t * pulParam ) /* PRIVILEGED_FUNCTION */
                 ::: "r1", "memory"
                 );
 
-            /* Restore the stacked link register to what it was at the time of
-             * system call entry. */
+            /* Return to the caller of the System Call entry point (i.e. the
+             * caller of the MPU_<API>). */
+            pulTaskStack[ portOFFSET_TO_PC ] = pxMpuSettings->xSystemCallStackInfo.ulLinkRegisterAtSystemCallEntry;
+            /* Ensure that LR has a valid value.*/
             pulTaskStack[ portOFFSET_TO_LR ] = pxMpuSettings->xSystemCallStackInfo.ulLinkRegisterAtSystemCallEntry;
 
             /* If the hardware used padding to force the stack pointer
@@ -741,6 +693,19 @@ BaseType_t xPortIsTaskPrivileged( void ) /* PRIVILEGED_FUNCTION */
 }
 /*-----------------------------------------------------------*/
 
+void vPortSwitchToUserMode( void )
+{
+    /* Load the current task's MPU settings from its TCB. */
+    xMPU_SETTINGS * xTaskMpuSettings = xTaskGetMPUSettings( NULL );
+
+    /* Mark the task as unprivileged. */
+    xTaskMpuSettings->ulTaskFlags &= ( ~( portTASK_IS_PRIVILEGED_FLAG ) );
+
+    /* Lower the processor's privilege level. */
+    vResetPrivilege();
+}
+/*-----------------------------------------------------------*/
+
 /*
  * See header file for description.
  */
@@ -758,6 +723,40 @@ BaseType_t xPortStartScheduler( void )
         configASSERT( portCPUID != portCORTEX_M7_r0p1_ID );
         configASSERT( portCPUID != portCORTEX_M7_r0p0_ID );
     #endif
+
+    /* An application can install FreeRTOS interrupt handlers in one of the
+     * folllowing ways:
+     * 1. Direct Routing - Install the functions vPortSVCHandler and
+     *    xPortPendSVHandler for SVCall and PendSV interrupts respectively.
+     * 2. Indirect Routing - Install separate handlers for SVCall and PendSV
+     *    interrupts and route program control from those handlers to
+     *    vPortSVCHandler and xPortPendSVHandler functions.
+     *
+     * Applications that use Indirect Routing must set
+     * configCHECK_HANDLER_INSTALLATION to 0 in their FreeRTOSConfig.h. Direct
+     * routing, which is validated here when configCHECK_HANDLER_INSTALLATION
+     * is 1, should be preferred when possible. */
+    #if ( configCHECK_HANDLER_INSTALLATION == 1 )
+    {
+        const portISR_t * const pxVectorTable = portSCB_VTOR_REG;
+
+        /* Validate that the application has correctly installed the FreeRTOS
+         * handlers for SVCall and PendSV interrupts. We do not check the
+         * installation of the SysTick handler because the application may
+         * choose to drive the RTOS tick using a timer other than the SysTick
+         * timer by overriding the weak function vPortSetupTimerInterrupt().
+         *
+         * Assertion failures here indicate incorrect installation of the
+         * FreeRTOS handlers. For help installing the FreeRTOS handlers, see
+         * https://www.FreeRTOS.org/FAQHelp.html.
+         *
+         * Systems with a configurable address for the interrupt vector table
+         * can also encounter assertion failures or even system faults here if
+         * VTOR is not set correctly to point to the application's vector table. */
+        configASSERT( pxVectorTable[ portVECTOR_INDEX_SVC ] == vPortSVCHandler );
+        configASSERT( pxVectorTable[ portVECTOR_INDEX_PENDSV ] == xPortPendSVHandler );
+    }
+    #endif /* configCHECK_HANDLER_INSTALLATION */
 
     #if ( configASSERT_DEFINED == 1 )
     {
@@ -843,9 +842,11 @@ BaseType_t xPortStartScheduler( void )
     }
     #endif /* configASSERT_DEFINED */
 
-    /* Make PendSV and SysTick the lowest priority interrupts. */
+    /* Make PendSV and SysTick the lowest priority interrupts, and make SVCall
+     * the highest priority. */
     portNVIC_SHPR3_REG |= portNVIC_PENDSV_PRI;
     portNVIC_SHPR3_REG |= portNVIC_SYSTICK_PRI;
+    portNVIC_SHPR2_REG = 0;
 
     /* Configure the regions in the MPU that are common to all tasks. */
     prvSetupMPU();
@@ -856,6 +857,12 @@ BaseType_t xPortStartScheduler( void )
 
     /* Initialise the critical nesting count ready for the first task. */
     uxCriticalNesting = 0;
+
+    #if ( ( configUSE_MPU_WRAPPERS_V1 == 0 ) && ( configENABLE_ACCESS_CONTROL_LIST == 1 ) )
+    {
+        xSchedulerRunning = pdTRUE;
+    }
+    #endif
 
     /* Ensure the VFP is enabled - it should be anyway. */
     vPortEnableVFP();
@@ -1120,7 +1127,7 @@ static uint32_t prvGetMPURegionSizeSetting( uint32_t ulActualSizeInBytes )
 void vPortStoreTaskMPUSettings( xMPU_SETTINGS * xMPUSettings,
                                 const struct xMEMORY_REGION * const xRegions,
                                 StackType_t * pxBottomOfStack,
-                                uint32_t ulStackDepth )
+                                configSTACK_DEPTH_TYPE uxStackDepth )
 {
     extern uint32_t __SRAM_segment_start__[];
     extern uint32_t __SRAM_segment_end__[];
@@ -1165,7 +1172,7 @@ void vPortStoreTaskMPUSettings( xMPU_SETTINGS * xMPUSettings,
          * which case the stack region parameters will be valid.  At all other
          * times the stack parameters will not be valid and it is assumed that the
          * stack region has already been configured. */
-        if( ulStackDepth > 0 )
+        if( uxStackDepth > 0 )
         {
             /* Define the region that allows access to the stack. */
             xMPUSettings->xRegion[ 0 ].ulRegionBaseAddress =
@@ -1176,13 +1183,13 @@ void vPortStoreTaskMPUSettings( xMPU_SETTINGS * xMPUSettings,
             xMPUSettings->xRegion[ 0 ].ulRegionAttribute =
                 ( portMPU_REGION_READ_WRITE ) |
                 ( portMPU_REGION_EXECUTE_NEVER ) |
-                ( prvGetMPURegionSizeSetting( ulStackDepth * ( uint32_t ) sizeof( StackType_t ) ) ) |
+                ( prvGetMPURegionSizeSetting( uxStackDepth * ( configSTACK_DEPTH_TYPE ) sizeof( StackType_t ) ) ) |
                 ( ( configTEX_S_C_B_SRAM & portMPU_RASR_TEX_S_C_B_MASK ) << portMPU_RASR_TEX_S_C_B_LOCATION ) |
                 ( portMPU_REGION_ENABLE );
 
             xMPUSettings->xRegionSettings[ 0 ].ulRegionStartAddress = ( uint32_t ) pxBottomOfStack;
             xMPUSettings->xRegionSettings[ 0 ].ulRegionEndAddress = ( uint32_t ) ( ( uint32_t ) ( pxBottomOfStack ) +
-                                                                                   ( ulStackDepth * ( uint32_t ) sizeof( StackType_t ) ) - 1UL );
+                                                                                   ( uxStackDepth * ( configSTACK_DEPTH_TYPE ) sizeof( StackType_t ) ) - 1UL );
             xMPUSettings->xRegionSettings[ 0 ].ulRegionPermissions = ( tskMPU_READ_PERMISSION |
                                                                        tskMPU_WRITE_PERMISSION );
         }
@@ -1246,7 +1253,15 @@ BaseType_t xPortIsAuthorizedToAccessBuffer( const void * pvBuffer,
     BaseType_t xAccessGranted = pdFALSE;
     const xMPU_SETTINGS * xTaskMpuSettings = xTaskGetMPUSettings( NULL ); /* Calling task's MPU settings. */
 
-    if( ( xTaskMpuSettings->ulTaskFlags & portTASK_IS_PRIVILEGED_FLAG ) == portTASK_IS_PRIVILEGED_FLAG )
+    if( xSchedulerRunning == pdFALSE )
+    {
+        /* Grant access to all the kernel objects before the scheduler
+         * is started. It is necessary because there is no task running
+         * yet and therefore, we cannot use the permissions of any
+         * task. */
+        xAccessGranted = pdTRUE;
+    }
+    else if( ( xTaskMpuSettings->ulTaskFlags & portTASK_IS_PRIVILEGED_FLAG ) == portTASK_IS_PRIVILEGED_FLAG )
     {
         xAccessGranted = pdTRUE;
     }
@@ -1386,20 +1401,33 @@ BaseType_t xPortIsAuthorizedToAccessBuffer( const void * pvBuffer,
         {
             uint32_t ulAccessControlListEntryIndex, ulAccessControlListEntryBit;
             BaseType_t xAccessGranted = pdFALSE;
-            const xMPU_SETTINGS * xTaskMpuSettings = xTaskGetMPUSettings( NULL ); /* Calling task's MPU settings. */
+            const xMPU_SETTINGS * xTaskMpuSettings;
 
-            ulAccessControlListEntryIndex = ( ( uint32_t ) lInternalIndexOfKernelObject / portACL_ENTRY_SIZE_BITS );
-            ulAccessControlListEntryBit = ( ( uint32_t ) lInternalIndexOfKernelObject % portACL_ENTRY_SIZE_BITS );
-
-            if( ( xTaskMpuSettings->ulTaskFlags & portTASK_IS_PRIVILEGED_FLAG ) == portTASK_IS_PRIVILEGED_FLAG )
+            if( xSchedulerRunning == pdFALSE )
             {
+                /* Grant access to all the kernel objects before the scheduler
+                 * is started. It is necessary because there is no task running
+                 * yet and therefore, we cannot use the permissions of any
+                 * task. */
                 xAccessGranted = pdTRUE;
             }
             else
             {
-                if( ( xTaskMpuSettings->ulAccessControlList[ ulAccessControlListEntryIndex ] & ( 1U << ulAccessControlListEntryBit ) ) != 0 )
+                xTaskMpuSettings = xTaskGetMPUSettings( NULL ); /* Calling task's MPU settings. */
+
+                ulAccessControlListEntryIndex = ( ( uint32_t ) lInternalIndexOfKernelObject / portACL_ENTRY_SIZE_BITS );
+                ulAccessControlListEntryBit = ( ( uint32_t ) lInternalIndexOfKernelObject % portACL_ENTRY_SIZE_BITS );
+
+                if( ( xTaskMpuSettings->ulTaskFlags & portTASK_IS_PRIVILEGED_FLAG ) == portTASK_IS_PRIVILEGED_FLAG )
                 {
                     xAccessGranted = pdTRUE;
+                }
+                else
+                {
+                    if( ( xTaskMpuSettings->ulAccessControlList[ ulAccessControlListEntryIndex ] & ( 1U << ulAccessControlListEntryBit ) ) != 0 )
+                    {
+                        xAccessGranted = pdTRUE;
+                    }
                 }
             }
 

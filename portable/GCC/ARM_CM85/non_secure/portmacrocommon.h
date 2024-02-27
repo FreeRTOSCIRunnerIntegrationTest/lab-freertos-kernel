@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -287,8 +287,7 @@ extern void vClearInterruptMask( uint32_t ulMask ) /* __attribute__(( naked )) P
     #define portSTACK_FRAME_HAS_PADDING_FLAG    ( 1UL << 0UL )
     #define portTASK_IS_PRIVILEGED_FLAG         ( 1UL << 1UL )
 
-/* Size of an Access Control List (ACL) entry in bits and bytes. */
-    #define portACL_ENTRY_SIZE_BYTES            ( 4U )
+/* Size of an Access Control List (ACL) entry in bits. */
     #define portACL_ENTRY_SIZE_BITS             ( 32U )
 
     typedef struct MPU_SETTINGS
@@ -301,7 +300,7 @@ extern void vClearInterruptMask( uint32_t ulMask ) /* __attribute__(( naked )) P
         #if ( configUSE_MPU_WRAPPERS_V1 == 0 )
             xSYSTEM_CALL_STACK_INFO xSystemCallStackInfo;
             #if ( configENABLE_ACCESS_CONTROL_LIST == 1 )
-                uint32_t ulAccessControlList[ ( configPROTECTED_KERNEL_OBJECT_POOL_SIZE / portACL_ENTRY_SIZE_BYTES ) + 1 ];
+                uint32_t ulAccessControlList[ ( configPROTECTED_KERNEL_OBJECT_POOL_SIZE / portACL_ENTRY_SIZE_BITS ) + 1 ];
             #endif
         #endif
     } xMPU_SETTINGS;
@@ -323,19 +322,25 @@ extern void vClearInterruptMask( uint32_t ulMask ) /* __attribute__(( naked )) P
 /**
  * @brief SVC numbers.
  */
-#define portSVC_ALLOCATE_SECURE_CONTEXT    0
-#define portSVC_FREE_SECURE_CONTEXT        1
-#define portSVC_START_SCHEDULER            2
-#define portSVC_RAISE_PRIVILEGE            3
-#define portSVC_SYSTEM_CALL_ENTER          4   /* System calls with upto 4 parameters. */
-#define portSVC_SYSTEM_CALL_ENTER_1        5   /* System calls with 5 parameters. */
-#define portSVC_SYSTEM_CALL_EXIT           6
+#define portSVC_ALLOCATE_SECURE_CONTEXT    100
+#define portSVC_FREE_SECURE_CONTEXT        101
+#define portSVC_START_SCHEDULER            102
+#define portSVC_RAISE_PRIVILEGE            103
+#define portSVC_SYSTEM_CALL_EXIT           104
+#define portSVC_YIELD                      105
 /*-----------------------------------------------------------*/
 
 /**
  * @brief Scheduler utilities.
  */
-#define portYIELD()    vPortYield()
+#if ( configENABLE_MPU == 1 )
+    #define portYIELD()               __asm volatile ( "svc %0" ::"i" ( portSVC_YIELD ) : "memory" )
+    #define portYIELD_WITHIN_API()    vPortYield()
+#else
+    #define portYIELD()               vPortYield()
+    #define portYIELD_WITHIN_API()    vPortYield()
+#endif
+
 #define portNVIC_INT_CTRL_REG     ( *( ( volatile uint32_t * ) 0xe000ed04 ) )
 #define portNVIC_PENDSVSET_BIT    ( 1UL << 28UL )
 #define portEND_SWITCHING_ISR( xSwitchRequired )            \

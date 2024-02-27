@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -57,7 +57,7 @@
     #if ( configSUPPORT_DYNAMIC_ALLOCATION == 1 )
         BaseType_t MPU_xTaskCreate( TaskFunction_t pvTaskCode,
                                     const char * const pcName,
-                                    uint16_t usStackDepth,
+                                    const configSTACK_DEPTH_TYPE uxStackDepth,
                                     void * pvParameters,
                                     UBaseType_t uxPriority,
                                     TaskHandle_t * pxCreatedTask ) /* FREERTOS_SYSTEM_CALL */
@@ -72,7 +72,7 @@
                 uxPriority = uxPriority & ~( portPRIVILEGE_BIT );
                 portMEMORY_BARRIER();
 
-                xReturn = xTaskCreate( pvTaskCode, pcName, usStackDepth, pvParameters, uxPriority, pxCreatedTask );
+                xReturn = xTaskCreate( pvTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, pxCreatedTask );
                 portMEMORY_BARRIER();
 
                 portRESET_PRIVILEGE();
@@ -80,7 +80,7 @@
             }
             else
             {
-                xReturn = xTaskCreate( pvTaskCode, pcName, usStackDepth, pvParameters, uxPriority, pxCreatedTask );
+                xReturn = xTaskCreate( pvTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, pxCreatedTask );
             }
 
             return xReturn;
@@ -91,7 +91,7 @@
     #if ( configSUPPORT_STATIC_ALLOCATION == 1 )
         TaskHandle_t MPU_xTaskCreateStatic( TaskFunction_t pxTaskCode,
                                             const char * const pcName,
-                                            const uint32_t ulStackDepth,
+                                            const configSTACK_DEPTH_TYPE uxStackDepth,
                                             void * const pvParameters,
                                             UBaseType_t uxPriority,
                                             StackType_t * const puxStackBuffer,
@@ -107,7 +107,7 @@
                 uxPriority = uxPriority & ~( portPRIVILEGE_BIT );
                 portMEMORY_BARRIER();
 
-                xReturn = xTaskCreateStatic( pxTaskCode, pcName, ulStackDepth, pvParameters, uxPriority, puxStackBuffer, pxTaskBuffer );
+                xReturn = xTaskCreateStatic( pxTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, puxStackBuffer, pxTaskBuffer );
                 portMEMORY_BARRIER();
 
                 portRESET_PRIVILEGE();
@@ -115,7 +115,7 @@
             }
             else
             {
-                xReturn = xTaskCreateStatic( pxTaskCode, pcName, ulStackDepth, pvParameters, uxPriority, puxStackBuffer, pxTaskBuffer );
+                xReturn = xTaskCreateStatic( pxTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, puxStackBuffer, pxTaskBuffer );
             }
 
             return xReturn;
@@ -1797,7 +1797,7 @@
 
     #if ( configUSE_TIMERS == 1 )
         void MPU_vTimerSetReloadMode( TimerHandle_t xTimer,
-                                      const UBaseType_t uxAutoReload ) /* FREERTOS_SYSTEM_CALL */
+                                      const BaseType_t uxAutoReload ) /* FREERTOS_SYSTEM_CALL */
         {
             if( portIS_PRIVILEGED() == pdFALSE )
             {

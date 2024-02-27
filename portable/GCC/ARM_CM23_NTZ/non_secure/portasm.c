@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -35,6 +35,9 @@
 
 /* Portasm includes. */
 #include "portasm.h"
+
+/* System call numbers includes. */
+#include "mpu_syscall_numbers.h"
 
 /* MPU_WRAPPERS_INCLUDED_FROM_API_FILE is needed to be defined only for the
  * header files. */
@@ -109,7 +112,9 @@
             "    ldmia r1!, {r2-r5}                           \n" /* r2 = original PSP, r3 = PSPLIM, r4 = CONTROL, r5 = LR. */
             "    subs r1, #16                                 \n"
             "    msr psp, r2                                  \n"
-            "    msr psplim, r3                               \n"
+            #if ( configRUN_FREERTOS_SECURE_ONLY == 1 )
+                "    msr psplim, r3                           \n"
+            #endif
             "    msr control, r4                              \n"
             "    mov lr, r5                                   \n"
             "                                                 \n"
@@ -155,7 +160,9 @@
             "   ldr  r0, [r1]                                   \n" /* Read top of stack from TCB - The first item in pxCurrentTCB is the task top of stack. */
             "                                                   \n"
             "   ldm  r0!, {r1-r2}                               \n" /* Read from stack - r1 = PSPLIM and r2 = EXC_RETURN. */
-            "   msr  psplim, r1                                 \n" /* Set this task's PSPLIM value. */
+            #if ( configRUN_FREERTOS_SECURE_ONLY == 1 )
+                "   msr  psplim, r1                             \n" /* Set this task's PSPLIM value. */
+            #endif
             "   movs r1, #2                                     \n" /* r1 = 2. */
             "   msr  CONTROL, r1                                \n" /* Switch to use PSP in the thread mode. */
             "   adds r0, #32                                    \n" /* Discard everything up to r0. */
@@ -302,7 +309,11 @@ void vClearInterruptMask( __attribute__( ( unused ) ) uint32_t ulMask ) /* __att
             "                                                 \n"
             " save_special_regs:                              \n"
             "    mrs r2, psp                                  \n" /* r2 = PSP. */
-            "    mrs r3, psplim                               \n" /* r3 = PSPLIM. */
+            #if ( configRUN_FREERTOS_SECURE_ONLY == 1 )
+                "    mrs r3, psplim                           \n" /* r3 = PSPLIM. */
+            #else
+                "    movs r3, #0                              \n" /* r3 = 0. 0 is stored in the PSPLIM slot. */
+            #endif
             "    mrs r4, control                              \n" /* r4 = CONTROL. */
             "    mov r5, lr                                   \n" /* r5 = LR. */
             "    stmia r1!, {r2-r5}                           \n" /* Store original PSP (after hardware has saved context), PSPLIM, CONTROL and LR. */
@@ -370,7 +381,9 @@ void vClearInterruptMask( __attribute__( ( unused ) ) uint32_t ulMask ) /* __att
             "    ldmia r1!, {r2-r5}                           \n" /* r2 = original PSP, r3 = PSPLIM, r4 = CONTROL, r5 = LR. */
             "    subs r1, #16                                 \n"
             "    msr psp, r2                                  \n"
-            "    msr psplim, r3                               \n"
+            #if ( configRUN_FREERTOS_SECURE_ONLY == 1 )
+                "    msr psplim, r3                           \n"
+            #endif
             "    msr control, r4                              \n"
             "    mov lr, r5                                   \n"
             "                                                 \n"
@@ -416,7 +429,11 @@ void vClearInterruptMask( __attribute__( ( unused ) ) uint32_t ulMask ) /* __att
             "   ldr r1, [r2]                                    \n" /* Read pxCurrentTCB. */
             "   subs r0, r0, #40                                \n" /* Make space for PSPLIM, LR and the remaining registers on the stack. */
             "   str r0, [r1]                                    \n" /* Save the new top of stack in TCB. */
-            "   mrs r2, psplim                                  \n" /* r2 = PSPLIM. */
+            #if ( configRUN_FREERTOS_SECURE_ONLY == 1 )
+                "   mrs r2, psplim                              \n" /* r2 = PSPLIM. */
+            #else
+                "   movs r2, #0                                 \n" /* r2 = 0. 0 is stored in the PSPLIM slot. */
+            #endif
             "   mov r3, lr                                      \n" /* r3 = LR/EXC_RETURN. */
             "   stmia r0!, {r2-r7}                              \n" /* Store on the stack - PSPLIM, LR and low registers that are not automatically saved. */
             "   mov r4, r8                                      \n" /* r4 = r8. */
@@ -442,7 +459,9 @@ void vClearInterruptMask( __attribute__( ( unused ) ) uint32_t ulMask ) /* __att
             "   msr psp, r0                                     \n" /* Remember the new top of stack for the task. */
             "   subs r0, r0, #40                                \n" /* Move to the starting of the saved context. */
             "   ldmia r0!, {r2-r7}                              \n" /* Read from stack - r2 = PSPLIM, r3 = LR and r4-r7 restored. */
-            "   msr psplim, r2                                  \n" /* Restore the PSPLIM register value for the task. */
+            #if ( configRUN_FREERTOS_SECURE_ONLY == 1 )
+                "   msr psplim, r2                              \n" /* Restore the PSPLIM register value for the task. */
+            #endif
             "   bx r3                                           \n"
             "                                                   \n"
             "   .align 4                                        \n"
@@ -462,7 +481,6 @@ void vClearInterruptMask( __attribute__( ( unused ) ) uint32_t ulMask ) /* __att
             ".syntax unified                \n"
             ".extern vPortSVCHandler_C      \n"
             ".extern vSystemCallEnter       \n"
-            ".extern vSystemCallEnter_1     \n"
             ".extern vSystemCallExit        \n"
             "                               \n"
             "movs r0, #4                    \n"
@@ -477,26 +495,22 @@ void vClearInterruptMask( __attribute__( ( unused ) ) uint32_t ulMask ) /* __att
             "    b route_svc                \n"
             "                               \n"
             "route_svc:                     \n"
-            "    ldr r2, [r0, #24]          \n"
-            "    subs r2, #2                \n"
-            "    ldrb r3, [r2, #0]          \n"
-            "    cmp r3, %0                 \n"
-            "    beq system_call_enter      \n"
-            "    cmp r3, %1                 \n"
-            "    beq system_call_enter_1    \n"
-            "    cmp r3, %2                 \n"
+            "    ldr r3, [r0, #24]          \n"
+            "    subs r3, #2                \n"
+            "    ldrb r2, [r3, #0]          \n"
+            "    cmp r2, %0                 \n"
+            "    blt system_call_enter      \n"
+            "    cmp r2, %1                 \n"
             "    beq system_call_exit       \n"
             "    b vPortSVCHandler_C        \n"
             "                               \n"
             "system_call_enter:             \n"
             "    b vSystemCallEnter         \n"
-            "system_call_enter_1:           \n"
-            "    b vSystemCallEnter_1       \n"
             "system_call_exit:              \n"
             "    b vSystemCallExit          \n"
             "                               \n"
             : /* No outputs. */
-            : "i" ( portSVC_SYSTEM_CALL_ENTER ), "i" ( portSVC_SYSTEM_CALL_ENTER_1 ), "i" ( portSVC_SYSTEM_CALL_EXIT )
+            : "i" ( NUM_SYSTEM_CALLS ), "i" ( portSVC_SYSTEM_CALL_EXIT )
             : "r0", "r1", "r2", "r3", "memory"
         );
     }

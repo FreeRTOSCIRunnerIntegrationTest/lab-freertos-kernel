@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -60,6 +60,13 @@
 #if ( configTOTAL_MPU_REGIONS == 16 )
     #error 16 MPU regions are not yet supported for this port.
 #endif
+
+#ifndef configENABLE_MVE
+    #define configENABLE_MVE    0
+#elif( configENABLE_MVE != 0 )
+    #error configENABLE_MVE must be left undefined, or defined to 0 for the Cortex-M33.
+#endif
+
 /*-----------------------------------------------------------*/
 
 /**

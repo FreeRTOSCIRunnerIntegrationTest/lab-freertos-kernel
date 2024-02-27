@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,17 +27,17 @@
  */
 
 /*
- * Changes from V3.0.0
- + ISRcode pulled inline to reduce stack-usage.
- +
- + Added functionality to only call vTaskSwitchContext() once
- +    when handling multiple interruptsources in a single interruptcall.
- +
- + Filename changed to a .c extension to allow stepping through code
- +    using F7.
- +
- + Changes from V3.0.1
- */
+Changes from V3.0.0
+    + ISRcode pulled inline to reduce stack-usage.
+
+    + Added functionality to only call vTaskSwitchContext() once
+      when handling multiple interruptsources in a single interruptcall.
+
+    + Filename changed to a .c extension to allow stepping through code
+      using F7.
+
+Changes from V3.0.1
+*/
 
 /*
  * ISR for the tick.
@@ -76,4 +76,4 @@
 
 #pragma wizcpp uselib     "$__PATHNAME__/Tick.c"
 
-#endif /* _FREERTOS_DRIVERS_TICK_ISRTICK_C */
+#endif  /* _FREERTOS_DRIVERS_TICK_ISRTICK_C */

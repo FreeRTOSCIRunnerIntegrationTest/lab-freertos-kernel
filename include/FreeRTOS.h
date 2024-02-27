@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -96,6 +96,10 @@
     #define configNUMBER_OF_CORES    1
 #endif
 
+#ifndef configUSE_MALLOC_FAILED_HOOK
+    #define configUSE_MALLOC_FAILED_HOOK    0
+#endif
+
 /* Basic FreeRTOS definitions. */
 #include "projdefs.h"
 
@@ -175,8 +179,8 @@
 #endif
 
 #if ( configNUMBER_OF_CORES > 1 )
-    #ifndef configUSE_MINIMAL_IDLE_HOOK
-        #error Missing definition:  configUSE_MINIMAL_IDLE_HOOK must be defined in FreeRTOSConfig.h as either 1 or 0.  See the Configuration section of the FreeRTOS API documentation for details.
+    #ifndef configUSE_PASSIVE_IDLE_HOOK
+        #error Missing definition:  configUSE_PASSIVE_IDLE_HOOK must be defined in FreeRTOSConfig.h as either 1 or 0.  See the Configuration section of the FreeRTOS API documentation for details.
     #endif
 #endif
 
@@ -365,6 +369,17 @@
     #define configPRECONDITION_DEFINED    1
 #endif
 
+#ifndef configCHECK_HANDLER_INSTALLATION
+    #define configCHECK_HANDLER_INSTALLATION    1
+#else
+
+/* The application has explicitly defined configCHECK_HANDLER_INSTALLATION
+ * to 1. The checks requires configASSERT() to be defined. */
+    #if ( ( configCHECK_HANDLER_INSTALLATION == 1 ) && ( configASSERT_DEFINED == 0 ) )
+        #error You must define configASSERT() when configCHECK_HANDLER_INSTALLATION is 1.
+    #endif
+#endif
+
 #ifndef portMEMORY_BARRIER
     #define portMEMORY_BARRIER()
 #endif
@@ -453,14 +468,6 @@
 
 #endif /* portGET_ISR_LOCK */
 
-#ifndef portCHECK_IF_IN_ISR
-
-    #if ( configNUMBER_OF_CORES > 1 )
-        #error portCHECK_IF_IN_ISR is required in SMP
-    #endif
-
-#endif /* portCHECK_IF_IN_ISR */
-
 #ifndef portENTER_CRITICAL_FROM_ISR
 
     #if ( configNUMBER_OF_CORES > 1 )
@@ -481,9 +488,15 @@
     #define configUSE_CORE_AFFINITY    0
 #endif /* configUSE_CORE_AFFINITY */
 
-#ifndef configUSE_MINIMAL_IDLE_HOOK
-    #define configUSE_MINIMAL_IDLE_HOOK    0
-#endif /* configUSE_MINIMAL_IDLE_HOOK */
+#if ( ( configNUMBER_OF_CORES > 1 ) && ( configUSE_CORE_AFFINITY == 1 ) )
+    #ifndef configTASK_DEFAULT_CORE_AFFINITY
+        #define configTASK_DEFAULT_CORE_AFFINITY    tskNO_AFFINITY
+    #endif
+#endif
+
+#ifndef configUSE_PASSIVE_IDLE_HOOK
+    #define configUSE_PASSIVE_IDLE_HOOK    0
+#endif /* configUSE_PASSIVE_IDLE_HOOK */
 
 /* The timers module relies on xTaskGetSchedulerState(). */
 #if configUSE_TIMERS == 1
@@ -506,12 +519,36 @@
 
 #endif /* configUSE_TIMERS */
 
+#ifndef portHAS_NESTED_INTERRUPTS
+    #if defined( portSET_INTERRUPT_MASK_FROM_ISR ) && defined( portCLEAR_INTERRUPT_MASK_FROM_ISR )
+        #define portHAS_NESTED_INTERRUPTS    1
+    #else
+        #define portHAS_NESTED_INTERRUPTS    0
+    #endif
+#endif
+
 #ifndef portSET_INTERRUPT_MASK_FROM_ISR
-    #define portSET_INTERRUPT_MASK_FROM_ISR()    0
+    #if ( portHAS_NESTED_INTERRUPTS == 1 )
+        #error portSET_INTERRUPT_MASK_FROM_ISR must be defined for ports that support nested interrupts (i.e. portHAS_NESTED_INTERRUPTS is set to 1)
+    #else
+        #define portSET_INTERRUPT_MASK_FROM_ISR()    0
+    #endif
+#else
+    #if ( portHAS_NESTED_INTERRUPTS == 0 )
+        #error portSET_INTERRUPT_MASK_FROM_ISR must not be defined for ports that do not support nested interrupts (i.e. portHAS_NESTED_INTERRUPTS is set to 0)
+    #endif
 #endif
 
 #ifndef portCLEAR_INTERRUPT_MASK_FROM_ISR
-    #define portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedStatusValue )    ( void ) ( uxSavedStatusValue )
+    #if ( portHAS_NESTED_INTERRUPTS == 1 )
+        #error portCLEAR_INTERRUPT_MASK_FROM_ISR must be defined for ports that support nested interrupts  (i.e. portHAS_NESTED_INTERRUPTS is set to 1)
+    #else
+        #define portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedStatusValue )    ( void ) ( uxSavedStatusValue )
+    #endif
+#else
+    #if ( portHAS_NESTED_INTERRUPTS == 0 )
+        #error portCLEAR_INTERRUPT_MASK_FROM_ISR must not be defined for ports that do not support nested interrupts (i.e. portHAS_NESTED_INTERRUPTS is set to 0)
+    #endif
 #endif
 
 #ifndef portCLEAN_UP_TCB
@@ -524,6 +561,10 @@
 
 #ifndef portSETUP_TCB
     #define portSETUP_TCB( pxTCB )    ( void ) ( pxTCB )
+#endif
+
+#ifndef portTASK_SWITCH_HOOK
+    #define portTASK_SWITCH_HOOK( pxTCB )    ( void ) ( pxTCB )
 #endif
 
 #ifndef configQUEUE_REGISTRY_SIZE
@@ -1611,11 +1652,19 @@
 #endif
 
 #ifndef traceENTER_xTaskCreateStatic
-    #define traceENTER_xTaskCreateStatic( pxTaskCode, pcName, ulStackDepth, pvParameters, uxPriority, puxStackBuffer, pxTaskBuffer )
+    #define traceENTER_xTaskCreateStatic( pxTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, puxStackBuffer, pxTaskBuffer )
 #endif
 
 #ifndef traceRETURN_xTaskCreateStatic
     #define traceRETURN_xTaskCreateStatic( xReturn )
+#endif
+
+#ifndef traceENTER_xTaskCreateStaticAffinitySet
+    #define traceENTER_xTaskCreateStaticAffinitySet( pxTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, puxStackBuffer, pxTaskBuffer, uxCoreAffinityMask )
+#endif
+
+#ifndef traceRETURN_xTaskCreateStaticAffinitySet
+    #define traceRETURN_xTaskCreateStaticAffinitySet( xReturn )
 #endif
 
 #ifndef traceENTER_xTaskCreateRestrictedStatic
@@ -1626,6 +1675,14 @@
     #define traceRETURN_xTaskCreateRestrictedStatic( xReturn )
 #endif
 
+#ifndef traceENTER_xTaskCreateRestrictedStaticAffinitySet
+    #define traceENTER_xTaskCreateRestrictedStaticAffinitySet( pxTaskDefinition, uxCoreAffinityMask, pxCreatedTask )
+#endif
+
+#ifndef traceRETURN_xTaskCreateRestrictedStaticAffinitySet
+    #define traceRETURN_xTaskCreateRestrictedStaticAffinitySet( xReturn )
+#endif
+
 #ifndef traceENTER_xTaskCreateRestricted
     #define traceENTER_xTaskCreateRestricted( pxTaskDefinition, pxCreatedTask )
 #endif
@@ -1634,12 +1691,28 @@
     #define traceRETURN_xTaskCreateRestricted( xReturn )
 #endif
 
+#ifndef traceENTER_xTaskCreateRestrictedAffinitySet
+    #define traceENTER_xTaskCreateRestrictedAffinitySet( pxTaskDefinition, uxCoreAffinityMask, pxCreatedTask )
+#endif
+
+#ifndef traceRETURN_xTaskCreateRestrictedAffinitySet
+    #define traceRETURN_xTaskCreateRestrictedAffinitySet( xReturn )
+#endif
+
 #ifndef traceENTER_xTaskCreate
-    #define traceENTER_xTaskCreate( pxTaskCode, pcName, usStackDepth, pvParameters, uxPriority, pxCreatedTask )
+    #define traceENTER_xTaskCreate( pxTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, pxCreatedTask )
 #endif
 
 #ifndef traceRETURN_xTaskCreate
     #define traceRETURN_xTaskCreate( xReturn )
+#endif
+
+#ifndef traceENTER_xTaskCreateAffinitySet
+    #define traceENTER_xTaskCreateAffinitySet( pxTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, uxCoreAffinityMask, pxCreatedTask )
+#endif
+
+#ifndef traceRETURN_xTaskCreateAffinitySet
+    #define traceRETURN_xTaskCreateAffinitySet( xReturn )
 #endif
 
 #ifndef traceENTER_vTaskDelete
@@ -1688,6 +1761,22 @@
 
 #ifndef traceRETURN_uxTaskPriorityGetFromISR
     #define traceRETURN_uxTaskPriorityGetFromISR( uxReturn )
+#endif
+
+#ifndef traceENTER_uxTaskBasePriorityGet
+    #define traceENTER_uxTaskBasePriorityGet( xTask )
+#endif
+
+#ifndef traceRETURN_uxTaskBasePriorityGet
+    #define traceRETURN_uxTaskBasePriorityGet( uxReturn )
+#endif
+
+#ifndef traceENTER_uxTaskBasePriorityGetFromISR
+    #define traceENTER_uxTaskBasePriorityGetFromISR( xTask )
+#endif
+
+#ifndef traceRETURN_uxTaskBasePriorityGetFromISR
+    #define traceRETURN_uxTaskBasePriorityGetFromISR( uxReturn )
 #endif
 
 #ifndef traceENTER_vTaskPrioritySet
@@ -1842,12 +1931,24 @@
     #define traceRETURN_uxTaskGetSystemState( uxTask )
 #endif
 
-#ifndef traceENTER_xTaskGetIdleTaskHandle
-    #define traceENTER_xTaskGetIdleTaskHandle()
+#if ( configNUMBER_OF_CORES == 1 )
+    #ifndef traceENTER_xTaskGetIdleTaskHandle
+        #define traceENTER_xTaskGetIdleTaskHandle()
+    #endif
 #endif
 
-#ifndef traceRETURN_xTaskGetIdleTaskHandle
-    #define traceRETURN_xTaskGetIdleTaskHandle( xIdleTaskHandle )
+#if ( configNUMBER_OF_CORES == 1 )
+    #ifndef traceRETURN_xTaskGetIdleTaskHandle
+        #define traceRETURN_xTaskGetIdleTaskHandle( xIdleTaskHandle )
+    #endif
+#endif
+
+#ifndef traceENTER_xTaskGetIdleTaskHandleForCore
+    #define traceENTER_xTaskGetIdleTaskHandleForCore( xCoreID )
+#endif
+
+#ifndef traceRETURN_xTaskGetIdleTaskHandleForCore
+    #define traceRETURN_xTaskGetIdleTaskHandleForCore( xIdleTaskHandle )
 #endif
 
 #ifndef traceENTER_vTaskStepTick
@@ -2074,12 +2175,12 @@
     #define traceRETURN_xTaskGetCurrentTaskHandle( xReturn )
 #endif
 
-#ifndef traceENTER_xTaskGetCurrentTaskHandleCPU
-    #define traceENTER_xTaskGetCurrentTaskHandleCPU( xCoreID )
+#ifndef traceENTER_xTaskGetCurrentTaskHandleForCore
+    #define traceENTER_xTaskGetCurrentTaskHandleForCore( xCoreID )
 #endif
 
-#ifndef traceRETURN_xTaskGetCurrentTaskHandleCPU
-    #define traceRETURN_xTaskGetCurrentTaskHandleCPU( xReturn )
+#ifndef traceRETURN_xTaskGetCurrentTaskHandleForCore
+    #define traceRETURN_xTaskGetCurrentTaskHandleForCore( xReturn )
 #endif
 
 #ifndef traceENTER_xTaskGetSchedulerState
@@ -2154,20 +2255,20 @@
     #define traceRETURN_vTaskExitCriticalFromISR()
 #endif
 
-#ifndef traceENTER_vTaskList
-    #define traceENTER_vTaskList( pcWriteBuffer )
+#ifndef traceENTER_vTaskListTasks
+    #define traceENTER_vTaskListTasks( pcWriteBuffer, uxBufferLength )
 #endif
 
-#ifndef traceRETURN_vTaskList
-    #define traceRETURN_vTaskList()
+#ifndef traceRETURN_vTaskListTasks
+    #define traceRETURN_vTaskListTasks()
 #endif
 
-#ifndef traceENTER_vTaskGetRunTimeStats
-    #define traceENTER_vTaskGetRunTimeStats( pcWriteBuffer )
+#ifndef traceENTER_vTaskGetRunTimeStatistics
+    #define traceENTER_vTaskGetRunTimeStatistics( pcWriteBuffer, uxBufferLength )
 #endif
 
-#ifndef traceRETURN_vTaskGetRunTimeStats
-    #define traceRETURN_vTaskGetRunTimeStats()
+#ifndef traceRETURN_vTaskGetRunTimeStatistics
+    #define traceRETURN_vTaskGetRunTimeStatistics()
 #endif
 
 #ifndef traceENTER_uxTaskResetEventItemValue
@@ -2418,6 +2519,22 @@
     #define traceRETURN_xStreamBufferReceiveCompletedFromISR( xReturn )
 #endif
 
+#ifndef traceENTER_uxStreamBufferGetStreamBufferNotificationIndex
+    #define traceENTER_uxStreamBufferGetStreamBufferNotificationIndex( xStreamBuffer )
+#endif
+
+#ifndef traceRETURN_uxStreamBufferGetStreamBufferNotificationIndex
+    #define traceRETURN_uxStreamBufferGetStreamBufferNotificationIndex( uxNotificationIndex )
+#endif
+
+#ifndef traceENTER_vStreamBufferSetStreamBufferNotificationIndex
+    #define traceENTER_vStreamBufferSetStreamBufferNotificationIndex( xStreamBuffer, uxNotificationIndex )
+#endif
+
+#ifndef traceRETURN_vStreamBufferSetStreamBufferNotificationIndex
+    #define traceRETURN_vStreamBufferSetStreamBufferNotificationIndex()
+#endif
+
 #ifndef traceENTER_uxStreamBufferGetStreamBufferNumber
     #define traceENTER_uxStreamBufferGetStreamBufferNumber( xStreamBuffer )
 #endif
@@ -2534,10 +2651,6 @@
 
 #ifndef portCONFIGURE_TIMER_FOR_RUN_TIME_STATS
     #define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()
-#endif
-
-#ifndef configUSE_MALLOC_FAILED_HOOK
-    #define configUSE_MALLOC_FAILED_HOOK    0
 #endif
 
 #ifndef portPRIVILEGE_BIT
@@ -2686,11 +2799,15 @@
     #endif
 #endif
 
+#ifndef configSTATS_BUFFER_MAX_LENGTH
+    #define configSTATS_BUFFER_MAX_LENGTH    0xFFFF
+#endif
+
 #ifndef configSTACK_DEPTH_TYPE
 
-/* Defaults to uint16_t for backward compatibility, but can be overridden
- * in FreeRTOSConfig.h if uint16_t is too restrictive. */
-    #define configSTACK_DEPTH_TYPE    uint16_t
+/* Defaults to StackType_t for backward compatibility, but can be overridden
+ * in FreeRTOSConfig.h if StackType_t is too restrictive. */
+    #define configSTACK_DEPTH_TYPE    StackType_t
 #endif
 
 #ifndef configRUN_TIME_COUNTER_TYPE
@@ -2874,6 +2991,12 @@
 
 #ifndef configRUN_ADDITIONAL_TESTS
     #define configRUN_ADDITIONAL_TESTS    0
+#endif
+
+/* The following config allows infinite loop control. For example, control the
+ * infinite loop in idle task function when performing unit tests. */
+#ifndef configCONTROL_INFINITE_LOOP
+    #define configCONTROL_INFINITE_LOOP()
 #endif
 
 /* Sometimes the FreeRTOSConfig.h settings only allow a task to be created using
@@ -3170,6 +3293,7 @@ typedef struct xSTATIC_STREAM_BUFFER
     #if ( configUSE_SB_COMPLETED_CALLBACK == 1 )
         void * pvDummy5[ 2 ];
     #endif
+    UBaseType_t uxDummy6;
 } StaticStreamBuffer_t;
 
 /* Message buffers are built on stream buffers. */

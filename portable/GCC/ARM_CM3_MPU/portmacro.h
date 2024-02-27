@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -96,8 +96,6 @@ typedef unsigned long    UBaseType_t;
 #define portNUM_CONFIGURABLE_REGIONS                             ( ( portLAST_CONFIGURABLE_REGION - portFIRST_CONFIGURABLE_REGION ) + 1 )
 #define portTOTAL_NUM_REGIONS_IN_TCB                             ( portNUM_CONFIGURABLE_REGIONS + 1 )     /* Plus one to make space for the stack region. */
 
-#define portSWITCH_TO_USER_MODE()    __asm volatile ( " mrs r0, control \n orr r0, #1 \n msr control, r0 " ::: "r0", "memory" )
-
 typedef struct MPU_REGION_REGISTERS
 {
     uint32_t ulRegionBaseAddress;
@@ -129,8 +127,7 @@ typedef struct MPU_REGION_SETTINGS
 
 #define MAX_CONTEXT_SIZE                    ( 20 )
 
-/* Size of an Access Control List (ACL) entry in bits and bytes. */
-#define portACL_ENTRY_SIZE_BYTES            ( 4U )
+/* Size of an Access Control List (ACL) entry in bits. */
 #define portACL_ENTRY_SIZE_BITS             ( 32U )
 
 /* Flags used for xMPU_SETTINGS.ulTaskFlags member. */
@@ -147,7 +144,7 @@ typedef struct MPU_SETTINGS
     #if ( configUSE_MPU_WRAPPERS_V1 == 0 )
         xSYSTEM_CALL_STACK_INFO xSystemCallStackInfo;
         #if ( configENABLE_ACCESS_CONTROL_LIST == 1 )
-            uint32_t ulAccessControlList[ ( configPROTECTED_KERNEL_OBJECT_POOL_SIZE / portACL_ENTRY_SIZE_BYTES ) + 1 ];
+            uint32_t ulAccessControlList[ ( configPROTECTED_KERNEL_OBJECT_POOL_SIZE / portACL_ENTRY_SIZE_BITS ) + 1 ];
         #endif
     #endif
 } xMPU_SETTINGS;
@@ -160,12 +157,10 @@ typedef struct MPU_SETTINGS
 /*-----------------------------------------------------------*/
 
 /* SVC numbers for various services. */
-#define portSVC_START_SCHEDULER        0
-#define portSVC_YIELD                  1
-#define portSVC_RAISE_PRIVILEGE        2
-#define portSVC_SYSTEM_CALL_ENTER      3    /* System calls with upto 4 parameters. */
-#define portSVC_SYSTEM_CALL_ENTER_1    4    /* System calls with 5 parameters. */
-#define portSVC_SYSTEM_CALL_EXIT       5
+#define portSVC_START_SCHEDULER        100
+#define portSVC_YIELD                  101
+#define portSVC_RAISE_PRIVILEGE        102
+#define portSVC_SYSTEM_CALL_EXIT       103
 
 /* Scheduler utilities. */
 
@@ -269,24 +264,33 @@ extern void vPortExitCritical( void );
 
 extern BaseType_t xIsPrivileged( void );
 extern void vResetPrivilege( void );
+extern void vPortSwitchToUserMode( void );
 
 /**
  * @brief Checks whether or not the processor is privileged.
  *
  * @return 1 if the processor is already privileged, 0 otherwise.
  */
-#define portIS_PRIVILEGED()      xIsPrivileged()
+#define portIS_PRIVILEGED()          xIsPrivileged()
 
 /**
  * @brief Raise an SVC request to raise privilege.
  */
-#define portRAISE_PRIVILEGE()    __asm volatile ( "svc %0 \n" ::"i" ( portSVC_RAISE_PRIVILEGE ) : "memory" );
+#define portRAISE_PRIVILEGE()        __asm volatile ( "svc %0 \n" ::"i" ( portSVC_RAISE_PRIVILEGE ) : "memory" );
 
 /**
  * @brief Lowers the privilege level by setting the bit 0 of the CONTROL
  * register.
  */
-#define portRESET_PRIVILEGE()    vResetPrivilege()
+#define portRESET_PRIVILEGE()        vResetPrivilege()
+
+/**
+ * @brief Make a task unprivileged.
+ *
+ * It must be called from privileged tasks only. Calling it from unprivileged
+ * task will result in a memory protection fault.
+ */
+#define portSWITCH_TO_USER_MODE()    vPortSwitchToUserMode()
 /*-----------------------------------------------------------*/
 
 extern BaseType_t xPortIsTaskPrivileged( void );

@@ -1,6 +1,6 @@
 /*
  * FreeRTOS Kernel <DEVELOPMENT BRANCH>
- * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -99,6 +99,8 @@
             #define vTaskAllocateMPURegions              MPU_vTaskAllocateMPURegions
             #define xTaskGetStaticBuffers                MPU_xTaskGetStaticBuffers
             #define uxTaskPriorityGetFromISR             MPU_uxTaskPriorityGetFromISR
+            #define uxTaskBasePriorityGet                MPU_uxTaskBasePriorityGet
+            #define uxTaskBasePriorityGetFromISR         MPU_uxTaskBasePriorityGetFromISR
             #define xTaskResumeFromISR                   MPU_xTaskResumeFromISR
             #define xTaskGetApplicationTaskTagFromISR    MPU_xTaskGetApplicationTaskTagFromISR
             #define xTaskGenericNotifyFromISR            MPU_xTaskGenericNotifyFromISR
@@ -227,14 +229,6 @@
             #define xStreamBufferReceiveCompletedFromISR    MPU_xStreamBufferReceiveCompletedFromISR
         #endif /* #if ( configUSE_MPU_WRAPPERS_V1 == 0 ) */
 
-/* Remove the privileged function macro, but keep the PRIVILEGED_DATA
- * macro so applications can place data in privileged access sections
- * (useful when using statically allocated objects). */
-        #define PRIVILEGED_FUNCTION
-        #define PRIVILEGED_DATA    __attribute__( ( section( "privileged_data" ) ) )
-        #define FREERTOS_SYSTEM_CALL
-
-
         #if ( ( configUSE_MPU_WRAPPERS_V1 == 0 ) && ( configENABLE_ACCESS_CONTROL_LIST == 1 ) )
 
             #define vGrantAccessToTask( xTask, xTaskToGrantAccess )                        vGrantAccessToKernelObject( ( xTask ), ( int32_t ) ( xTaskToGrantAccess ) )
@@ -263,14 +257,11 @@
 
         #endif /* #if ( ( configUSE_MPU_WRAPPERS_V1 == 0 ) && ( configENABLE_ACCESS_CONTROL_LIST == 1 ) ) */
 
-    #else /* MPU_WRAPPERS_INCLUDED_FROM_API_FILE */
-
-/* Ensure API functions go in the privileged execution section. */
-        #define PRIVILEGED_FUNCTION     __attribute__( ( section( "privileged_functions" ) ) )
-        #define PRIVILEGED_DATA         __attribute__( ( section( "privileged_data" ) ) )
-        #define FREERTOS_SYSTEM_CALL    __attribute__( ( section( "freertos_system_calls" ) ) )
-
     #endif /* MPU_WRAPPERS_INCLUDED_FROM_API_FILE */
+
+    #define PRIVILEGED_FUNCTION     __attribute__( ( section( "privileged_functions" ) ) )
+    #define PRIVILEGED_DATA         __attribute__( ( section( "privileged_data" ) ) )
+    #define FREERTOS_SYSTEM_CALL    __attribute__( ( section( "freertos_system_calls" ) ) )
 
 #else /* portUSING_MPU_WRAPPERS */
 

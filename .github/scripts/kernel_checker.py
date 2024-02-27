@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #/*
 # * FreeRTOS Kernel <DEVELOPMENT BRANCH>
-# * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+# * Copyright (C) 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # *
 # * SPDX-License-Identifier: MIT
 # *
@@ -37,7 +37,8 @@ KERNEL_IGNORED_FILES = [
     'FreeRTOS-openocd.c',
     'Makefile',
     '.DS_Store',
-    'cspell.config.yaml'
+    'cspell.config.yaml',
+    '.clang-format'
 ]
 
 KERNEL_IGNORED_EXTENSIONS = [
@@ -62,7 +63,8 @@ KERNEL_IGNORED_EXTENSIONS = [
     '.bat',
     '.sh',
     '.txt',
-    '.cmake'
+    '.cmake',
+    '.config'
 ]
 
 KERNEL_ASM_EXTENSIONS = [
@@ -92,7 +94,9 @@ KERNEL_IGNORED_PATTERNS = [
     r'.*portable/ThirdParty/xClang/XCOREAI/*',
     r'.*IAR/ARM_C*',
     r'.*IAR/78K0R/*',
-    r'.*CCS/MSP430X/*'
+    r'.*CCS/MSP430X/*',
+    r'.*portable/template/*',
+    r'.*template_configuration/*'
 ]
 
 KERNEL_THIRD_PARTY_PATTERNS = [
@@ -105,7 +109,7 @@ KERNEL_THIRD_PARTY_PATTERNS = [
 KERNEL_HEADER = [
     '/*\n',
     ' * FreeRTOS Kernel <DEVELOPMENT BRANCH>\n',
-    ' * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.\n',
+    ' * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.\n',
     ' *\n',
     ' * SPDX-License-Identifier: MIT\n',
     ' *\n',
@@ -132,12 +136,16 @@ KERNEL_HEADER = [
     ' */\n',
 ]
 
+
+FREERTOS_COPYRIGHT_REGEX = r"^(;|#)?( *(\/\*|\*|#|\/\/))? Copyright \(C\) 20\d\d Amazon.com, Inc. or its affiliates. All Rights Reserved\.( \*\/)?$"
+
 def main():
     parser = HeaderChecker.configArgParser()
     args   = parser.parse_args()
 
     # Configure the checks then run
     checker = HeaderChecker(KERNEL_HEADER,
+                            copyright_regex=FREERTOS_COPYRIGHT_REGEX,
                             ignored_files=KERNEL_IGNORED_FILES,
                             ignored_ext=KERNEL_IGNORED_EXTENSIONS,
                             ignored_patterns=KERNEL_IGNORED_PATTERNS,
