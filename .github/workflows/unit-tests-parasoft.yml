@@ -43,7 +43,7 @@ jobs:
         echo "pr  commit: ${{github.event.workflow_run.head_sha}}"
         echo " pr headsha: ${{github.event.pull_request.head.sha}}"
         echo " incoming repo: ${{github.event.pull_request.head.user.html_url}}"
-        sed -i '/^[[:space:]]*GIT_REPOSITORY/c\GIT_REPOSITORY ${{github.event.pull_request.head.user.html_url}}' CMakeLists.txt
+        sed -i '/^[[:space:]]*GIT_REPOSITORY/c\GIT_REPOSITORY ${{github.event.pull_request.head.repo.html_url}}' CMakeLists.txt
         sed -i '/^[[:space:]]*GIT_TAG/c\GIT_TAG ${{github.event.pull_request.head.sha}}' CMakeLists.txt
         cat CMakeLists.txt
 
